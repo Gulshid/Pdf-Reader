@@ -35,15 +35,61 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+   # State Management
+  flutter_bloc: ^8.1.6
+  bloc: ^8.1.4
+  equatable: ^2.0.5
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # PDF Viewing & Generation
+  syncfusion_flutter_pdfviewer: ^26.2.14
+  syncfusion_flutter_pdf: ^26.2.14
+  pdf: ^3.11.1
+
+  # File Handling
+  file_picker: ^8.1.2
+  open_filex: ^4.5.0
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  share_plus: ^10.0.3
+  saver_gallery: ^3.0.6
+
+  # Responsive
+  flutter_screenutil: ^5.9.3
+
+  # Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  shared_preferences: ^2.3.2
+
+  # Conversion
+  image: ^4.2.0
+  archive: ^3.6.1
+  csv: ^6.0.0
+  excel: ^4.0.3
+
+  # DI
+  get_it: ^8.0.2
+  injectable: ^2.4.4
+
+  # UI
+  google_fonts: ^6.2.1
+  flutter_svg: ^2.0.10+1
+  shimmer: ^3.0.0
+  fluttertoast: ^8.2.8
+  permission_handler: ^11.3.1
+  intl: ^0.19.0
+  uuid: ^4.5.1
+  mime: ^1.0.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.12
+  injectable_generator: ^2.6.2
   flutter_lints: ^5.0.0
 
 # For information on the generic Dart part of this file, see the

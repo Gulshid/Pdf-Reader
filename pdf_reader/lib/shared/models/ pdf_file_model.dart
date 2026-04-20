@@ -1,0 +1,99 @@
+import 'dart:io';
+import 'package:equatable/equatable.dart';
+import 'package:intl/intl.dart';
+
+class PdfFileModel extends Equatable {
+  const PdfFileModel({
+    required this.id,
+    required this.name,
+    required this.path,
+    required this.size,
+    required this.lastModified,
+    this.pageCount,
+    this.thumbnail,
+    this.isBookmarked = false,
+    this.lastOpenedPage = 0,
+  });
+
+  final String id;
+  final String name;
+  final String path;
+  final int size; // bytes
+  final DateTime lastModified;
+  final int? pageCount;
+  final String? thumbnail;
+  final bool isBookmarked;
+  final int lastOpenedPage;
+
+  String get sizeFormatted {
+    if (size < 1024) return '$size B';
+    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
+    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String get dateFormatted =>
+      DateFormat('MMM dd, yyyy').format(lastModified);
+
+  String get extension => name.split('.').last.toUpperCase();
+
+  File get file => File(path);
+
+  PdfFileModel copyWith({
+    String? id,
+    String? name,
+    String? path,
+    int? size,
+    DateTime? lastModified,
+    int? pageCount,
+    String? thumbnail,
+    bool? isBookmarked,
+    int? lastOpenedPage,
+  }) {
+    return PdfFileModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      path: path ?? this.path,
+      size: size ?? this.size,
+      lastModified: lastModified ?? this.lastModified,
+      pageCount: pageCount ?? this.pageCount,
+      thumbnail: thumbnail ?? this.thumbnail,
+      isBookmarked: isBookmarked ?? this.isBookmarked,
+      lastOpenedPage: lastOpenedPage ?? this.lastOpenedPage,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'path': path,
+        'size': size,
+        'lastModified': lastModified.toIso8601String(),
+        'pageCount': pageCount,
+        'thumbnail': thumbnail,
+        'isBookmarked': isBookmarked,
+        'lastOpenedPage': lastOpenedPage,
+      };
+
+  factory PdfFileModel.fromJson(Map<String, dynamic> json) => PdfFileModel(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        path: json['path'] as String,
+        size: json['size'] as int,
+        lastModified: DateTime.parse(json['lastModified'] as String),
+        pageCount: json['pageCount'] as int?,
+        thumbnail: json['thumbnail'] as String?,
+        isBookmarked: json['isBookmarked'] as bool? ?? false,
+        lastOpenedPage: json['lastOpenedPage'] as int? ?? 0,
+      );
+
+  factory PdfFileModel.fromFile(File file) => PdfFileModel(
+        id: file.path.hashCode.toString(),
+        name: file.path.split('/').last,
+        path: file.path,
+        size: file.lengthSync(),
+        lastModified: file.lastModifiedSync(),
+      );
+
+  @override
+  List<Object?> get props => [id, path, isBookmarked, lastOpenedPage];
+}
