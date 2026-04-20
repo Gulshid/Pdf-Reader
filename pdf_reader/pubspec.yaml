@@ -83,6 +83,7 @@ dependencies:
   intl: ^0.19.0
   uuid: ^4.5.1
   mime: ^1.0.6
+  pdfx: ^2.6.0 
 
 dev_dependencies:
   flutter_test:

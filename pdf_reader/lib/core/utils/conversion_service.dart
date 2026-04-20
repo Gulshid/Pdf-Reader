@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 
 import '../../shared/models/conversion_task_model.dart';
@@ -54,29 +55,60 @@ class ConversionService {
     String output,
     ProgressCallback onProgress,
   ) async {
-    final bytes = await File(src).readAsBytes();
-    final sfDoc = sf.PdfDocument(inputBytes: bytes);
-
-    onProgress(0.3);
-
     switch (target) {
+      // ── PDF → TXT (Syncfusion handles text extraction fine) ────────────────
       case SupportedFormat.txt:
+        final bytes = await File(src).readAsBytes();
+        final sfDoc = sf.PdfDocument(inputBytes: bytes);
+        onProgress(0.3);
+
         final buffer = StringBuffer();
+        final extractor = sf.PdfTextExtractor(sfDoc);
         for (int i = 0; i < sfDoc.pages.count; i++) {
-          final extractor = sf.PdfTextExtractor(sfDoc);
           buffer.writeln(extractor.extractText(startPageIndex: i, endPageIndex: i));
           onProgress(0.3 + 0.6 * (i / sfDoc.pages.count));
         }
         sfDoc.dispose();
         await File(output).writeAsString(buffer.toString());
 
+      // ── PDF → JPG / PNG (pdfx renders pages natively) ─────────────────────
       case SupportedFormat.jpg:
       case SupportedFormat.png:
-        // Render first page as image using syncfusion (not directly supported)
-        // You may need to use a different package like 'pdf_render' for PDF to image conversion.
-        // Here, we throw an error to indicate this is not supported with syncfusion.
-        sfDoc.dispose();
-        throw UnsupportedError('PDF to image conversion is not supported with Syncfusion PDF. Use a package like pdf_render or native code for this feature.');
+        final document = await pdfx.PdfDocument.openFile(src);
+        onProgress(0.3);
+
+        try {
+          final page = await document.getPage(1); // first page
+          final pageImage = await page.render(
+            width: page.width * 2,   // ~2× for crisp output
+            height: page.height * 2,
+            format: target == SupportedFormat.jpg
+                ? pdfx.PdfPageImageFormat.jpeg
+                : pdfx.PdfPageImageFormat.png,
+            backgroundColor: '#FFFFFF',
+          );
+          await page.close();
+          onProgress(0.8);
+
+          if (pageImage == null) {
+            throw Exception('Failed to render PDF page to image.');
+          }
+
+          if (target == SupportedFormat.jpg) {
+            // Re-encode at controlled quality via the image package
+            final decoded = img.decodeImage(pageImage.bytes);
+            if (decoded != null) {
+              await File(output)
+                  .writeAsBytes(img.encodeJpg(decoded, quality: 90));
+            } else {
+              await File(output).writeAsBytes(pageImage.bytes);
+            }
+          } else {
+            await File(output).writeAsBytes(pageImage.bytes);
+          }
+        } finally {
+          await document.close();
+        }
 
       default:
         throw UnsupportedError('PDF → ${target.label} not supported');
@@ -159,7 +191,7 @@ class ConversionService {
     await File(output).writeAsBytes(await pdfDoc.save());
   }
 
-  // ── CSV → PDF / XLSX ───────────────────────────────────────────────────────
+  // ── CSV → PDF ─────────────────────────────────────────────────────────────
 
   Future<void> _fromCsv(
     String src,
