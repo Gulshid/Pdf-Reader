@@ -19,39 +19,62 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeDeleteFileEvent>(_onDelete);
   }
 
-  final _bookmarksBox = Hive.box<String>('bookmarks');
+  final _bookmarksBox  = Hive.box<String>('bookmarks');
+  final _deletedBox    = Hive.box<String>('deleted_files');
+  // ✅ Persists paths of user-picked files across restarts
+  final _pickedBox     = Hive.box<String>('picked_files');
 
-  // ✅ Add this box — open it in main.dart alongside 'bookmarks'
-  final _deletedBox = Hive.box<String>('deleted_files');
-
-  Future<void> _onLoad(HomeLoadFilesEvent event, Emitter<HomeState> emit) async {
+  Future<void> _onLoad(
+      HomeLoadFilesEvent event, Emitter<HomeState> emit) async {
     emit(state.copyWith(status: HomeStatus.loading));
     try {
+      // 1. Scan well-known directories
       final dirs = <Directory>[];
       if (Platform.isAndroid) {
         dirs.add(Directory('/storage/emulated/0/Download'));
         dirs.add(Directory('/storage/emulated/0/Documents'));
       } else {
-        final docs = await getApplicationDocumentsDirectory();
-        dirs.add(docs);
+        dirs.add(await getApplicationDocumentsDirectory());
       }
 
-      final files = <PdfFileModel>[];
+      final scanned = <PdfFileModel>[];
       for (final dir in dirs) {
-        files.addAll(await FileUtils.scanDirectory(dir));
+        scanned.addAll(await FileUtils.scanDirectory(dir));
       }
 
-      // ✅ Filter out previously deleted files
-      final deletedIds = _deletedBox.values.toSet();
-      final nonDeleted = files.where((f) => !deletedIds.contains(f.id)).toList();
+      // 2. Re-hydrate user-picked files from Hive
+      //    Skip paths that no longer exist on disk
+      final pickedFiles = <PdfFileModel>[];
+      for (final path in _pickedBox.values) {
+        final f = File(path);
+        if (await f.exists()) {
+          pickedFiles.add(PdfFileModel.fromFile(f));
+        } else {
+          // File was deleted externally — clean up
+          _pickedBox.delete(path);
+        }
+      }
 
-      // Apply bookmarks
+      // 3. Merge, deduplicate by id (path hash)
+      final seen  = <String>{};
+      final merged = <PdfFileModel>[];
+      for (final f in [...scanned, ...pickedFiles]) {
+        if (seen.add(f.id)) merged.add(f);
+      }
+
+      // 4. Filter user-deleted entries
+      final deletedIds = _deletedBox.values.toSet();
+      final visible = merged.where((f) => !deletedIds.contains(f.id)).toList();
+
+      // 5. Apply bookmarks
       final bookmarked = _bookmarksBox.values.toSet();
-      final withBookmarks = nonDeleted
+      final withBookmarks = visible
           .map((f) => f.copyWith(isBookmarked: bookmarked.contains(f.id)))
           .toList();
 
-      final sorted = _applySortAndSearch(withBookmarks, state.sort, state.searchQuery);
+      final sorted =
+          _applySortAndSearch(withBookmarks, state.sort, state.searchQuery);
+
       emit(state.copyWith(
         status: HomeStatus.loaded,
         allFiles: withBookmarks,
@@ -62,7 +85,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
   }
 
-  Future<void> _onPick(HomePickFileEvent event, Emitter<HomeState> emit) async {
+  Future<void> _onPick(
+      HomePickFileEvent event, Emitter<HomeState> emit) async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
@@ -70,57 +94,66 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     );
     if (result == null) return;
 
-    // ✅ If user re-picks a previously deleted file, remove it from deleted set
     final picked = result.files
         .where((f) => f.path != null)
         .map((f) => PdfFileModel.fromFile(File(f.path!)))
         .toList();
 
     for (final f in picked) {
-      _deletedBox.delete(f.id); // allow re-adding
+      // ✅ Persist path so it survives restarts
+      _pickedBox.put(f.id, f.path);
+      // Re-allow a previously deleted file
+      _deletedBox.delete(f.id);
     }
 
-    final all = [...state.allFiles, ...picked];
+    // Merge with existing, avoiding duplicates
+    final existingIds = state.allFiles.map((f) => f.id).toSet();
+    final newFiles = picked.where((f) => !existingIds.contains(f.id)).toList();
+
+    final all    = [...state.allFiles, ...newFiles];
     final sorted = _applySortAndSearch(all, state.sort, state.searchQuery);
     emit(state.copyWith(allFiles: all, filteredFiles: sorted));
   }
 
   void _onSearch(HomeSearchEvent event, Emitter<HomeState> emit) {
-    final filtered = _applySortAndSearch(state.allFiles, state.sort, event.query);
+    final filtered =
+        _applySortAndSearch(state.allFiles, state.sort, event.query);
     emit(state.copyWith(searchQuery: event.query, filteredFiles: filtered));
   }
 
   void _onSort(HomeToggleSortEvent event, Emitter<HomeState> emit) {
-    final sorted = _applySortAndSearch(state.allFiles, event.sort, state.searchQuery);
+    final sorted =
+        _applySortAndSearch(state.allFiles, event.sort, state.searchQuery);
     emit(state.copyWith(sort: event.sort, filteredFiles: sorted));
   }
 
-  void _onBookmark(HomeToggleBookmarkEvent event, Emitter<HomeState> emit) {
+  void _onBookmark(
+      HomeToggleBookmarkEvent event, Emitter<HomeState> emit) {
     final updated = state.allFiles.map((f) {
-      if (f.id == event.fileId) {
-        if (f.isBookmarked) {
-          _bookmarksBox.delete(f.id);
-        } else {
-          _bookmarksBox.put(f.id, f.id);
-        }
-        return f.copyWith(isBookmarked: !f.isBookmarked);
+      if (f.id != event.fileId) return f;
+      if (f.isBookmarked) {
+        _bookmarksBox.delete(f.id);
+      } else {
+        _bookmarksBox.put(f.id, f.id);
       }
-      return f;
+      return f.copyWith(isBookmarked: !f.isBookmarked);
     }).toList();
 
-    final sorted = _applySortAndSearch(updated, state.sort, state.searchQuery);
+    final sorted =
+        _applySortAndSearch(updated, state.sort, state.searchQuery);
     emit(state.copyWith(allFiles: updated, filteredFiles: sorted));
   }
 
   void _onDelete(HomeDeleteFileEvent event, Emitter<HomeState> emit) {
-    // ✅ Persist the deletion so it survives hot restart / app restart
+    // Persist deletion
     _deletedBox.put(event.fileId, event.fileId);
-
-    // Also clean up bookmark if it exists
+    // Remove from picked box too so it won't resurface on next load
+    _pickedBox.delete(event.fileId);
     _bookmarksBox.delete(event.fileId);
 
     final updated = state.allFiles.where((f) => f.id != event.fileId).toList();
-    final sorted = _applySortAndSearch(updated, state.sort, state.searchQuery);
+    final sorted  =
+        _applySortAndSearch(updated, state.sort, state.searchQuery);
     emit(state.copyWith(allFiles: updated, filteredFiles: sorted));
   }
 
@@ -136,18 +169,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
             .toList();
 
     switch (sort) {
-      case HomeSort.nameAsc:
-        result.sort((a, b) => a.name.compareTo(b.name));
-      case HomeSort.nameDesc:
-        result.sort((a, b) => b.name.compareTo(a.name));
-      case HomeSort.dateAsc:
-        result.sort((a, b) => a.lastModified.compareTo(b.lastModified));
-      case HomeSort.dateDesc:
-        result.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-      case HomeSort.sizeAsc:
-        result.sort((a, b) => a.size.compareTo(b.size));
-      case HomeSort.sizeDesc:
-        result.sort((a, b) => b.size.compareTo(a.size));
+      case HomeSort.nameAsc:  result.sort((a, b) => a.name.compareTo(b.name));
+      case HomeSort.nameDesc: result.sort((a, b) => b.name.compareTo(a.name));
+      case HomeSort.dateAsc:  result.sort((a, b) => a.lastModified.compareTo(b.lastModified));
+      case HomeSort.dateDesc: result.sort((a, b) => b.lastModified.compareTo(a.lastModified));
+      case HomeSort.sizeAsc:  result.sort((a, b) => a.size.compareTo(b.size));
+      case HomeSort.sizeDesc: result.sort((a, b) => b.size.compareTo(a.size));
     }
     return result;
   }
