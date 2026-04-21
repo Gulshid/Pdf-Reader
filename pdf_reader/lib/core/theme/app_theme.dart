@@ -11,7 +11,7 @@ abstract class AppTheme {
 
   
 
- static const _primaryLight = Color(0xFF1F2D3D);
+  static const _primaryLight = Color(0xFF1F2D3D);
   static const _primaryDark  = Color(0xFF5A8FBF);
   static const _surfaceLight = Color(0xFFF2F3F5);
   static const _surfaceDark  = Color(0xFF080A0C);
@@ -37,9 +37,33 @@ abstract class AppTheme {
         : Color(0xFF0A0C0F);
 
 
+  
     final base = isDark ? ThemeData.dark() : ThemeData.light();
 
     return base.copyWith(
+      chipTheme: ChipThemeData(
+        backgroundColor: isDark ? const Color(0xFF1C1208) : const Color(0xFFF5EFE6),
+        selectedColor: primary.withOpacity(0.15),
+        labelStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 12.sp,
+          fontWeight: FontWeight.w500,
+          color: onSurface,
+        ),
+        secondaryLabelStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 12.sp,
+          fontWeight: FontWeight.w600,
+          color: primary,
+        ),
+        side: BorderSide(color: onSurface.withOpacity(0.12), width: 0.5),
+        selectedShadowColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        pressElevation: 0,
+        elevation: 0,
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20.r),
+        ),
+      ),
       colorScheme: ColorScheme(
         brightness: brightness,
         primary: primary,
