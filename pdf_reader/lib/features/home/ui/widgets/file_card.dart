@@ -1,10 +1,9 @@
-// ignore_for_file: unused_local_variable
+// lib/features/home/presentation/widgets/file_card.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../shared/models/ pdf_file_model.dart';
-
 
 class FileCard extends StatelessWidget {
   const FileCard({
@@ -37,7 +36,6 @@ class _ListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
 
     return Card(
       child: InkWell(
@@ -108,7 +106,7 @@ class _GridCard extends StatelessWidget {
             SizedBox(height: 4.h),
             Text(widget.file.sizeFormatted, style: theme.textTheme.labelSmall),
             SizedBox(height: 4.h),
-            _ActionMenu(widget: widget, isHorizontal: true),
+            _ActionMenu(widget: widget),
           ],
         ),
       ),
@@ -123,12 +121,12 @@ class _FileIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final color = _colorForExt(ext);
+    final iconSize = size ?? 44.sp;
 
     return Container(
-      width: size ?? 44.sp,
-      height: size ?? 44.sp,
+      width: iconSize,
+      height: iconSize,
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(10.r),
@@ -139,7 +137,7 @@ class _FileIcon extends StatelessWidget {
           style: TextStyle(
             color: color,
             fontWeight: FontWeight.w800,
-            fontSize: (size ?? 44.sp) * 0.28,
+            fontSize: iconSize * 0.28,
           ),
         ),
       ),
@@ -147,20 +145,19 @@ class _FileIcon extends StatelessWidget {
   }
 
   Color _colorForExt(String ext) => switch (ext) {
-        'PDF' => const Color(0xFFE53935),
-        'DOCX' || 'DOC' => const Color(0xFF1565C0),
-        'TXT' => const Color(0xFF546E7A),
+        'PDF'                    => const Color(0xFFE53935),
+        'DOCX' || 'DOC'         => const Color(0xFF1565C0),
+        'TXT'                    => const Color(0xFF546E7A),
         'JPG' || 'JPEG' || 'PNG' => const Color(0xFF00897B),
-        'CSV' => const Color(0xFF2E7D32),
-        'XLSX' || 'XLS' => const Color(0xFF1B5E20),
-        _ => const Color(0xFF6A1B9A),
+        'CSV'                    => const Color(0xFF2E7D32),
+        'XLSX' || 'XLS'         => const Color(0xFF1B5E20),
+        _                        => const Color(0xFF6A1B9A),
       };
 }
 
 class _ActionMenu extends StatelessWidget {
-  const _ActionMenu({required this.widget, this.isHorizontal = false});
+  const _ActionMenu({required this.widget});
   final FileCard widget;
-  final bool isHorizontal;
 
   @override
   Widget build(BuildContext context) {
@@ -168,12 +165,9 @@ class _ActionMenu extends StatelessWidget {
       icon: const Icon(Icons.more_vert_rounded),
       onSelected: (value) {
         switch (value) {
-          case 'convert':
-            widget.onConvert();
-          case 'bookmark':
-            widget.onBookmark();
-          case 'delete':
-            widget.onDelete();
+          case 'convert':  widget.onConvert();
+          case 'bookmark': widget.onBookmark();
+          case 'delete':   widget.onDelete();
         }
       },
       itemBuilder: (_) => [
