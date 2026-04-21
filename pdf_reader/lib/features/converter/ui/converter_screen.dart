@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:open_filex/open_filex.dart';
 
-import '../../../shared/models/ pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart';
 import '../bloc/converter_bloc.dart';
 import '../bloc/converter_event.dart';
 import '../bloc/converter_state.dart';

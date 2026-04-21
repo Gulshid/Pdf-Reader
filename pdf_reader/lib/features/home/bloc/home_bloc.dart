@@ -5,7 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/utils/file_utils.dart';
-import '../../../shared/models/ pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart';
 import 'home_event.dart';
 import 'home_state.dart';
 
@@ -20,6 +20,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   final _bookmarksBox = Hive.box<String>('bookmarks');
+
+  // ✅ Add this box — open it in main.dart alongside 'bookmarks'
+  final _deletedBox = Hive.box<String>('deleted_files');
 
   Future<void> _onLoad(HomeLoadFilesEvent event, Emitter<HomeState> emit) async {
     emit(state.copyWith(status: HomeStatus.loading));
@@ -38,9 +41,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         files.addAll(await FileUtils.scanDirectory(dir));
       }
 
+      // ✅ Filter out previously deleted files
+      final deletedIds = _deletedBox.values.toSet();
+      final nonDeleted = files.where((f) => !deletedIds.contains(f.id)).toList();
+
       // Apply bookmarks
       final bookmarked = _bookmarksBox.values.toSet();
-      final withBookmarks = files
+      final withBookmarks = nonDeleted
           .map((f) => f.copyWith(isBookmarked: bookmarked.contains(f.id)))
           .toList();
 
@@ -63,10 +70,15 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     );
     if (result == null) return;
 
+    // ✅ If user re-picks a previously deleted file, remove it from deleted set
     final picked = result.files
         .where((f) => f.path != null)
         .map((f) => PdfFileModel.fromFile(File(f.path!)))
         .toList();
+
+    for (final f in picked) {
+      _deletedBox.delete(f.id); // allow re-adding
+    }
 
     final all = [...state.allFiles, ...picked];
     final sorted = _applySortAndSearch(all, state.sort, state.searchQuery);
@@ -101,6 +113,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   void _onDelete(HomeDeleteFileEvent event, Emitter<HomeState> emit) {
+    // ✅ Persist the deletion so it survives hot restart / app restart
+    _deletedBox.put(event.fileId, event.fileId);
+
+    // Also clean up bookmark if it exists
+    _bookmarksBox.delete(event.fileId);
+
     final updated = state.allFiles.where((f) => f.id != event.fileId).toList();
     final sorted = _applySortAndSearch(updated, state.sort, state.searchQuery);
     emit(state.copyWith(allFiles: updated, filteredFiles: sorted));

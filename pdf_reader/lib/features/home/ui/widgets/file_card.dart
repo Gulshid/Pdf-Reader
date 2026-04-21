@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-import '../../../../shared/models/ pdf_file_model.dart';
+import '../../../../shared/models/pdf_file_model.dart';
 
 class FileCard extends StatelessWidget {
   const FileCard({

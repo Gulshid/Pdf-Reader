@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import '../../../shared/models/ pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart';
 import '../../../shared/models/conversion_task_model.dart';
 
 enum ConverterStatus { idle, picking, running, done, error }

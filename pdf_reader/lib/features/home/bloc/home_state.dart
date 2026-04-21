@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import '../../../shared/models/ pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart';
 import 'home_event.dart';
 
 enum HomeStatus { initial, loading, loaded, error }

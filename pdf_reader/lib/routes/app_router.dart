@@ -4,7 +4,7 @@ import '../features/converter/ui/converter_screen.dart';
 import '../features/home/ui/ home_screen.dart';
 import '../features/pdf_viewer/ui/pdf_viewer_screen.dart';
 import '../features/recent/ui/recent_screen.dart';
-import '../shared/models/ pdf_file_model.dart';
+import '../shared/models/pdf_file_model.dart';
 
 abstract class AppRouter {
   static const home = '/';

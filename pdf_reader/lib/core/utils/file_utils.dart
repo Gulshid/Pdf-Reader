@@ -3,7 +3,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import '../../shared/models/ pdf_file_model.dart';
+import '../../shared/models/pdf_file_model.dart';
 import '../../shared/models/conversion_task_model.dart';
 
 class FileUtils {

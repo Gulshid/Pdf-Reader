@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import '../../../shared/models/ pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart';
 
 enum RecentStatus { initial, loading, loaded }
 

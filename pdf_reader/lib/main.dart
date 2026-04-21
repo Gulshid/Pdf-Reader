@@ -27,6 +27,7 @@ void main() async {
 
 Future<void> _openHiveBoxes() async {
   await Hive.openBox<String>('bookmarks');
+  await Hive.openBox<String>('deleted_files'); // ✅ add this
   await Hive.openBox<String>('recent_files');
   await Hive.openBox('settings');
 }
