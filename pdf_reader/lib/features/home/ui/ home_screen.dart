@@ -38,11 +38,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            icon: Icon(
-              Theme.of(context).brightness == Brightness.dark
-                  ? Icons.light_mode_rounded
-                  : Icons.dark_mode_rounded,
-            ),
+            icon:  Icon(
+                theme.brightness == Brightness.dark
+                    ? Icons.light_mode_rounded
+                    : Icons.dark_mode_rounded,
+              ),
             onPressed: () => context.read<ThemeCubit>().toggle(),
           ),
           SizedBox(width: 4.w),
