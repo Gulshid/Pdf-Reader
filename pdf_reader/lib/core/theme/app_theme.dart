@@ -1,25 +1,41 @@
+
+// ignore_for_file: unused_field
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 abstract class AppTheme {
-  static const _primaryLight = Color(0xFF5B4FCF);
-  static const _primaryDark = Color(0xFF7C6FE8);
-  static const _surfaceLight = Color(0xFFF5F4FF);
-  static const _surfaceDark = Color(0xFF1A1830);
-  static const _cardLight = Color(0xFFFFFFFF);
-  static const _cardDark = Color(0xFF252340);
+  
   static const _errorColor = Color(0xFFE53935);
 
+  
+
+ static const _primaryLight = Color(0xFF1F2D3D);
+  static const _primaryDark  = Color(0xFF5A8FBF);
+  static const _surfaceLight = Color(0xFFF2F3F5);
+  static const _surfaceDark  = Color(0xFF080A0C);
+  static const _cardLight    = Color(0xFFFFFFFF);
+  static const _cardDark     = Color(0xFF111418);
+
+  // Accent colors (tags, badges, icons)
+  static const _accentALight = Color(0xFFE74C3C);
+  static const _accentADark  = Color(0xFFE74C3C);
+  static const _accentBLight = Color(0xFF3498DB);
+  static const _accentBDark  = Color(0xFF3498DB);
+
   static ThemeData get light => _build(Brightness.light);
-  static ThemeData get dark => _build(Brightness.dark);
+  static ThemeData get dark  => _build(Brightness.dark);
 
   static ThemeData _build(Brightness brightness) {
-    final isDark = brightness == Brightness.dark;
-    final primary = isDark ? _primaryDark : _primaryLight;
-    final surface = isDark ? _surfaceDark : _surfaceLight;
-    final card = isDark ? _cardDark : _cardLight;
-    final onSurface = isDark ? Colors.white : const Color(0xFF1A1830);
+    final isDark    = brightness == Brightness.dark;
+    final primary   = isDark ? _primaryDark  : _primaryLight;
+    final surface   = isDark ? _surfaceDark  : _surfaceLight;
+    final card      = isDark ? _cardDark     : _cardLight;
+    final onSurface = isDark
+        ? Color(0xFFE8EAED)
+        : Color(0xFF0A0C0F);
+
 
     final base = isDark ? ThemeData.dark() : ThemeData.light();
 
