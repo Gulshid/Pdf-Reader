@@ -48,3 +48,8 @@ class PdfViewerJumpToPageEvent extends PdfViewerEvent {
 class PdfViewerShareEvent extends PdfViewerEvent {
   const PdfViewerShareEvent();
 }
+
+class PdfViewerDocumentLoadedEvent extends PdfViewerEvent {
+  const PdfViewerDocumentLoadedEvent(this.totalPages);
+  final int totalPages;
+}

@@ -9,6 +9,7 @@ import 'pdf_viewer_state.dart';
 class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
   PdfViewerBloc() : super(const PdfViewerState()) {
     on<PdfViewerLoadEvent>(_onLoad);
+    on<PdfViewerDocumentLoadedEvent>(_onDocumentLoaded); // ✅ new
     on<PdfViewerPageChangedEvent>(_onPageChanged);
     on<PdfViewerZoomChangedEvent>(_onZoom);
     on<PdfViewerToggleNightModeEvent>(_onNightMode);
@@ -31,7 +32,15 @@ class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
       status: PdfViewerStatus.loaded,
       filePath: event.path,
       bookmarkedPages: bookmarks,
+      // ✅ Reset totalPages until the document actually loads
+      totalPages: 0,
     ));
+  }
+
+  // ✅ Only updates totalPages — never touches currentPage
+  void _onDocumentLoaded(
+      PdfViewerDocumentLoadedEvent event, Emitter<PdfViewerState> emit) {
+    emit(state.copyWith(totalPages: event.totalPages));
   }
 
   void _onPageChanged(
@@ -39,7 +48,8 @@ class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
     emit(state.copyWith(currentPage: event.page));
   }
 
-  void _onZoom(PdfViewerZoomChangedEvent event, Emitter<PdfViewerState> emit) {
+  void _onZoom(
+      PdfViewerZoomChangedEvent event, Emitter<PdfViewerState> emit) {
     emit(state.copyWith(zoom: event.zoom));
   }
 
@@ -61,7 +71,8 @@ class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
     emit(state.copyWith(bookmarkedPages: updated));
   }
 
-  void _onJump(PdfViewerJumpToPageEvent event, Emitter<PdfViewerState> emit) {
+  void _onJump(
+      PdfViewerJumpToPageEvent event, Emitter<PdfViewerState> emit) {
     emit(state.copyWith(currentPage: event.page));
   }
 
