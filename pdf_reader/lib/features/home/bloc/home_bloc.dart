@@ -90,7 +90,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
-      allowedExtensions: ['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png', 'csv', 'xlsx'],
+      allowedExtensions: ['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png', 'csv', 'xlsx', 'pptx'],
     );
     if (result == null) return;
 

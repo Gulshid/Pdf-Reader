@@ -12,7 +12,7 @@ enum SupportedFormat {
   csv,
   xlsx,
   docx,
-  pptx; // ✅ NEW
+  pptx;
 
   String get label => switch (this) {
         SupportedFormat.pdf  => 'PDF',
@@ -22,20 +22,17 @@ enum SupportedFormat {
         SupportedFormat.csv  => 'CSV',
         SupportedFormat.xlsx => 'XLSX',
         SupportedFormat.docx => 'DOCX',
-        SupportedFormat.pptx => 'PPTX', // ✅ NEW
+        SupportedFormat.pptx => 'PPTX',
       };
 
-  // ignore: overridden_fields
-  String get name => switch (this) {
-        SupportedFormat.pdf  => 'pdf',
-        SupportedFormat.txt  => 'txt',
-        SupportedFormat.jpg  => 'jpg',
-        SupportedFormat.png  => 'png',
-        SupportedFormat.csv  => 'csv',
-        SupportedFormat.xlsx => 'xlsx',
-        SupportedFormat.docx => 'docx',
-        SupportedFormat.pptx => 'pptx', // ✅ NEW
-      };
+  // FIX 1: Removed the broken `get name` override.
+  // Dart enums already have a built-in `name` getter that returns the enum
+  // member name as a string (e.g., SupportedFormat.pdf.name == 'pdf').
+  // Overriding it with `// ignore: overridden_fields` was silently failing
+  // on newer Dart SDKs (^3.8.1) because overriding a built-in getter this
+  // way is not allowed. FileUtils.detectFormat() compares on `.name`, so
+  // a broken override caused all format detection to return null, making
+  // the Convert button permanently disabled.
 
   /// Returns the valid target formats for this source format.
   List<SupportedFormat> get availableTargets => switch (this) {
@@ -45,12 +42,16 @@ enum SupportedFormat {
             SupportedFormat.png,
             SupportedFormat.docx,
             SupportedFormat.xlsx,
-            SupportedFormat.pptx, // ✅ NEW
+            SupportedFormat.csv,   // FIX 2: CSV was listed as supported in
+            SupportedFormat.pptx,  // _fromPdf but missing from availableTargets,
+                                   // so the target button never appeared.
           ],
         SupportedFormat.txt  => [
             SupportedFormat.pdf,
             SupportedFormat.docx,
             SupportedFormat.xlsx,
+            SupportedFormat.pptx,  // FIX 3: TXT→PPTX was implemented in the
+                                   // service but missing from availableTargets.
           ],
         SupportedFormat.jpg  => [
             SupportedFormat.pdf,
@@ -75,7 +76,7 @@ enum SupportedFormat {
             SupportedFormat.txt,
             SupportedFormat.xlsx,
           ],
-        SupportedFormat.pptx => [ // ✅ NEW
+        SupportedFormat.pptx => [
             SupportedFormat.pdf,
             SupportedFormat.txt,
           ],

@@ -13,15 +13,32 @@ import '../bloc/converter_state.dart';
 import 'widgets/format_selector.dart';
 import 'widgets/conversion_progress.dart'; // ✅ FIX: import the widget
 
-class ConverterScreen extends StatelessWidget {
+class ConverterScreen extends StatefulWidget {
   const ConverterScreen({super.key, this.initialFile});
   final PdfFileModel? initialFile;
 
   @override
-  Widget build(BuildContext context) {
-    if (initialFile != null) {
-      context.read<ConverterBloc>().add(ConverterSetSourceEvent(initialFile!));
+  State<ConverterScreen> createState() => _ConverterScreenState();
+}
+
+class _ConverterScreenState extends State<ConverterScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialFile != null) {
+      // Fire once, safely after the widget is mounted
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context
+              .read<ConverterBloc>()
+              .add(ConverterSetSourceEvent(widget.initialFile!));
+        }
+      });
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return const _ConverterView();
   }
 }
