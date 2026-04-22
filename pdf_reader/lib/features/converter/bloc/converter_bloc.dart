@@ -1,7 +1,9 @@
+// converter_bloc.dart
+
 import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
-// ← add this if missing
+
 import '../../../core/utils/conversion_service.dart';
 import '../../../core/utils/file_utils.dart';
 import '../../../shared/models/pdf_file_model.dart';
@@ -27,38 +29,42 @@ class ConverterBloc extends Bloc<ConverterEvent, ConverterState> {
       ConverterSetSourceEvent event, Emitter<ConverterState> emit) {
     final format = FileUtils.detectFormat(event.file.path);
     emit(state.copyWith(
-  sourceFile: event.file,
-  sourceFormat: format,
-  targetFormat: null,        // ✅ only works if copyWith uses a sentinel
-  status: ConverterStatus.idle,
-));
+      sourceFile: event.file,
+      sourceFormat: format,
+      targetFormat: null, // sentinel clears previous target
+      status: ConverterStatus.idle,
+    ));
   }
 
   Future<void> _onPick(
-    ConverterPickSourceEvent event, Emitter<ConverterState> emit) async {
-  emit(state.copyWith(status: ConverterStatus.picking));
+    ConverterPickSourceEvent event,
+    Emitter<ConverterState> emit,
+  ) async {
+    emit(state.copyWith(status: ConverterStatus.picking));
 
-  final FilePickerResult? result = await FilePicker.platform.pickFiles(  // ✅
-    type: FileType.custom,
-    allowedExtensions: [
-      'pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png', 'csv', 'xlsx'
-    ],
-  );
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: [
+        'pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png', 'csv', 'xlsx', 'pptx', // ✅ pptx added
+      ],
+    );
 
-  if (result == null || result.files.first.path == null) {
-    emit(state.copyWith(status: ConverterStatus.idle));
-    return;
+    if (result == null || result.files.first.path == null) {
+      emit(state.copyWith(status: ConverterStatus.idle));
+      return;
+    }
+
+    final file = PdfFileModel.fromFile(File(result.files.first.path!));
+    final format = FileUtils.detectFormat(file.path);
+
+    emit(state.copyWith(
+      status: ConverterStatus.idle,
+      sourceFile: file,
+      sourceFormat: format,
+      targetFormat: null, // clear stale target when new file picked
+    ));
   }
 
-  final file = PdfFileModel.fromFile(File(result.files.first.path!));
-  final format = FileUtils.detectFormat(file.path);
-
-  emit(state.copyWith(
-    status: ConverterStatus.idle,
-    sourceFile: file,
-    sourceFormat: format,
-  ));
-}
   void _onSetTarget(
       ConverterSetTargetFormatEvent event, Emitter<ConverterState> emit) {
     emit(state.copyWith(targetFormat: event.format));
@@ -88,9 +94,15 @@ class ConverterBloc extends Bloc<ConverterEvent, ConverterState> {
         outputPath: output,
         progress: 1.0,
       ));
-    } catch (e) {
+    } catch (e, st) {
+      // Log stack trace in debug builds
+      assert(() {
+        // ignore: avoid_print
+        print('ConversionService error: $e\n$st');
+        return true;
+      }());
       emit(state.copyWith(
-        status: ConverterStatus.error,
+        status: ConverterStatus.failed,
         error: e.toString(),
       ));
     }
@@ -105,7 +117,7 @@ class ConverterBloc extends Bloc<ConverterEvent, ConverterState> {
   }
 }
 
-// Internal event for streaming progress updates from the conversion service
+/// Internal event — streams progress from ConversionService back into the BLoC.
 class _ProgressUpdate extends ConverterEvent {
   const _ProgressUpdate(this.progress);
   final double progress;

@@ -1,12 +1,17 @@
+// conversion_progress.dart
+// ✅ FIX: Uses the unified ConversionStatus from conversion_task_model.dart.
+//    Old code used a separate ConversionStatus enum here that didn't match
+//    ConverterStatus in the BLoC, so the widget never received the right state.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../shared/models/conversion_task_model.dart';
 
-/// A self-contained widget that visualises the state of a running conversion.
+/// Visualises the state of a running conversion.
 ///
 /// Shows:
-///  • An animated indeterminate bar while the status is [ConversionStatus.running]
+///  • An animated indeterminate bar while [status] is [ConversionStatus.running]
 ///    and [progress] is still 0.
 ///  • A determinate bar + percentage label once progress > 0.
 ///  • A success indicator when [ConversionStatus.done].
@@ -22,7 +27,7 @@ class ConversionProgress extends StatelessWidget {
     this.targetLabel,
   });
 
-  final ConversionStatus status;
+  final ConversionStatus status; // ✅ unified enum
 
   /// 0.0 → 1.0
   final double progress;
@@ -33,10 +38,7 @@ class ConversionProgress extends StatelessWidget {
   /// Populated when [status] is [ConversionStatus.failed].
   final String? error;
 
-  /// e.g. "PDF"
   final String? sourceLabel;
-
-  /// e.g. "TXT"
   final String? targetLabel;
 
   @override
@@ -47,14 +49,14 @@ class ConversionProgress extends StatelessWidget {
           sourceLabel: sourceLabel,
           targetLabel: targetLabel,
         ),
-      ConversionStatus.done => _DoneView(outputPath: outputPath),
-      ConversionStatus.failed => _ErrorView(error: error),
-      ConversionStatus.idle => const SizedBox.shrink(),
+      ConversionStatus.done    => _DoneView(outputPath: outputPath),
+      ConversionStatus.failed  => _ErrorView(error: error),
+      _                        => const SizedBox.shrink(),
     };
   }
 }
 
-// ── Running ──────────────────────────────────────────────────────────────────
+// ── Running ───────────────────────────────────────────────────────────────────
 
 class _RunningView extends StatelessWidget {
   const _RunningView({
@@ -124,7 +126,6 @@ class _RunningView extends StatelessWidget {
 
         SizedBox(height: 12.h),
 
-        // Animated dots hint
         Center(
           child: Text(
             'Please wait, do not close the app',
@@ -139,7 +140,7 @@ class _RunningView extends StatelessWidget {
   }
 }
 
-// ── Done ─────────────────────────────────────────────────────────────────────
+// ── Done ──────────────────────────────────────────────────────────────────────
 
 class _DoneView extends StatelessWidget {
   const _DoneView({this.outputPath});

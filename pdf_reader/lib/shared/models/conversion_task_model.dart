@@ -1,31 +1,98 @@
+// conversion_task_model.dart
+
 import 'package:equatable/equatable.dart';
 
-enum ConversionStatus { idle, running, done, failed }
+// ── Supported Formats ────────────────────────────────────────────────────────
 
 enum SupportedFormat {
   pdf,
-  docx,
   txt,
   jpg,
   png,
   csv,
   xlsx,
-}
+  docx,
+  pptx; // ✅ NEW
 
-extension SupportedFormatExt on SupportedFormat {
-  String get label => name.toUpperCase();
-  String get mimeType => switch (this) {
-        SupportedFormat.pdf => 'application/pdf',
-        SupportedFormat.docx =>
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        SupportedFormat.txt => 'text/plain',
-        SupportedFormat.jpg => 'image/jpeg',
-        SupportedFormat.png => 'image/png',
-        SupportedFormat.csv => 'text/csv',
-        SupportedFormat.xlsx =>
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  String get label => switch (this) {
+        SupportedFormat.pdf  => 'PDF',
+        SupportedFormat.txt  => 'TXT',
+        SupportedFormat.jpg  => 'JPG',
+        SupportedFormat.png  => 'PNG',
+        SupportedFormat.csv  => 'CSV',
+        SupportedFormat.xlsx => 'XLSX',
+        SupportedFormat.docx => 'DOCX',
+        SupportedFormat.pptx => 'PPTX', // ✅ NEW
+      };
+
+  // ignore: overridden_fields
+  String get name => switch (this) {
+        SupportedFormat.pdf  => 'pdf',
+        SupportedFormat.txt  => 'txt',
+        SupportedFormat.jpg  => 'jpg',
+        SupportedFormat.png  => 'png',
+        SupportedFormat.csv  => 'csv',
+        SupportedFormat.xlsx => 'xlsx',
+        SupportedFormat.docx => 'docx',
+        SupportedFormat.pptx => 'pptx', // ✅ NEW
+      };
+
+  /// Returns the valid target formats for this source format.
+  List<SupportedFormat> get availableTargets => switch (this) {
+        SupportedFormat.pdf  => [
+            SupportedFormat.txt,
+            SupportedFormat.jpg,
+            SupportedFormat.png,
+            SupportedFormat.docx,
+            SupportedFormat.xlsx,
+            SupportedFormat.pptx, // ✅ NEW
+          ],
+        SupportedFormat.txt  => [
+            SupportedFormat.pdf,
+            SupportedFormat.docx,
+            SupportedFormat.xlsx,
+          ],
+        SupportedFormat.jpg  => [
+            SupportedFormat.pdf,
+            SupportedFormat.png,
+          ],
+        SupportedFormat.png  => [
+            SupportedFormat.pdf,
+            SupportedFormat.jpg,
+          ],
+        SupportedFormat.csv  => [
+            SupportedFormat.pdf,
+            SupportedFormat.xlsx,
+            SupportedFormat.txt,
+          ],
+        SupportedFormat.xlsx => [
+            SupportedFormat.pdf,
+            SupportedFormat.csv,
+            SupportedFormat.txt,
+          ],
+        SupportedFormat.docx => [
+            SupportedFormat.pdf,
+            SupportedFormat.txt,
+            SupportedFormat.xlsx,
+          ],
+        SupportedFormat.pptx => [ // ✅ NEW
+            SupportedFormat.pdf,
+            SupportedFormat.txt,
+          ],
       };
 }
+
+enum ConversionStatus {
+  idle,
+  picking,
+  running,
+  done,
+  failed;
+}
+
+typedef ConverterStatus = ConversionStatus;
+
+// ── Task Model ────────────────────────────────────────────────────────────────
 
 class ConversionTaskModel extends Equatable {
   const ConversionTaskModel({
@@ -33,44 +100,13 @@ class ConversionTaskModel extends Equatable {
     required this.sourceFilePath,
     required this.sourceFormat,
     required this.targetFormat,
-    this.status = ConversionStatus.idle,
-    this.progress = 0.0,
-    this.outputPath,
-    this.error,
   });
 
   final String id;
   final String sourceFilePath;
   final SupportedFormat sourceFormat;
   final SupportedFormat targetFormat;
-  final ConversionStatus status;
-  final double progress;
-  final String? outputPath;
-  final String? error;
-
-  ConversionTaskModel copyWith({
-    String? id,
-    String? sourceFilePath,
-    SupportedFormat? sourceFormat,
-    SupportedFormat? targetFormat,
-    ConversionStatus? status,
-    double? progress,
-    String? outputPath,
-    String? error,
-  }) {
-    return ConversionTaskModel(
-      id: id ?? this.id,
-      sourceFilePath: sourceFilePath ?? this.sourceFilePath,
-      sourceFormat: sourceFormat ?? this.sourceFormat,
-      targetFormat: targetFormat ?? this.targetFormat,
-      status: status ?? this.status,
-      progress: progress ?? this.progress,
-      outputPath: outputPath ?? this.outputPath,
-      error: error ?? this.error,
-    );
-  }
 
   @override
-  List<Object?> get props =>
-      [id, sourceFilePath, sourceFormat, targetFormat, status, progress];
+  List<Object?> get props => [id, sourceFilePath, sourceFormat, targetFormat];
 }

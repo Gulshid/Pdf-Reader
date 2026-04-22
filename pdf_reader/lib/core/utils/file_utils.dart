@@ -1,3 +1,5 @@
+// file_utils.dart
+
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -9,7 +11,7 @@ import '../../shared/models/conversion_task_model.dart';
 class FileUtils {
   const FileUtils._();
 
-  static final _uuid = const Uuid();
+  static const _uuid = Uuid();
 
   static String generateId() => _uuid.v4();
 
@@ -37,7 +39,10 @@ class FileUtils {
 
   /// Scan a directory for supported files
   static Future<List<PdfFileModel>> scanDirectory(Directory dir) async {
-    final supported = {'.pdf', '.docx', '.txt', '.jpg', '.jpeg', '.png', '.csv', '.xlsx'};
+    const supported = {
+      '.pdf', '.docx', '.txt', '.jpg', '.jpeg',
+      '.png', '.csv', '.xlsx', '.pptx', // ✅ added pptx
+    };
     final files = <PdfFileModel>[];
 
     if (!dir.existsSync()) return files;
@@ -56,8 +61,9 @@ class FileUtils {
   static SupportedFormat? detectFormat(String path) {
     final ext = p.extension(path).toLowerCase().replaceFirst('.', '');
     try {
-      return SupportedFormat.values.firstWhere((f) => f.name == ext ||
-          (ext == 'jpeg' && f == SupportedFormat.jpg));
+      return SupportedFormat.values.firstWhere(
+        (f) => f.name == ext || (ext == 'jpeg' && f == SupportedFormat.jpg),
+      );
     } catch (_) {
       return null;
     }

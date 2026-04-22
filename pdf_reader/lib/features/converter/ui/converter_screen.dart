@@ -1,13 +1,17 @@
+// converter_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:open_filex/open_filex.dart';
 
 import '../../../shared/models/pdf_file_model.dart';
+import '../../../shared/models/conversion_task_model.dart';
 import '../bloc/converter_bloc.dart';
 import '../bloc/converter_event.dart';
 import '../bloc/converter_state.dart';
 import 'widgets/format_selector.dart';
+import 'widgets/conversion_progress.dart'; // ✅ FIX: import the widget
 
 class ConverterScreen extends StatelessWidget {
   const ConverterScreen({super.key, this.initialFile});
@@ -16,11 +20,8 @@ class ConverterScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (initialFile != null) {
-      context
-          .read<ConverterBloc>()
-          .add(ConverterSetSourceEvent(initialFile!));
+      context.read<ConverterBloc>().add(ConverterSetSourceEvent(initialFile!));
     }
-
     return const _ConverterView();
   }
 }
@@ -48,7 +49,7 @@ class _ConverterView extends StatelessWidget {
               ),
             );
           }
-          if (state.status == ConverterStatus.error) {
+          if (state.status == ConverterStatus.failed) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.error ?? 'Conversion failed'),
@@ -63,14 +64,16 @@ class _ConverterView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Source file card
+                // ── Source file ────────────────────────────────────────────
                 _SectionLabel('Source File'),
                 SizedBox(height: 8.h),
                 _SourceCard(state: state),
                 SizedBox(height: 24.h),
 
-                // Target format
-                if (state.sourceFile != null) ...[
+                // ── Target format ──────────────────────────────────────────
+                if (state.sourceFile != null &&
+                    state.status != ConverterStatus.running &&
+                    state.status != ConverterStatus.done) ...[
                   _SectionLabel('Convert To'),
                   SizedBox(height: 8.h),
                   FormatSelector(
@@ -83,25 +86,22 @@ class _ConverterView extends StatelessWidget {
                   SizedBox(height: 32.h),
                 ],
 
-                // Progress / Convert button
+                // ── Progress / result / convert button ─────────────────────
+                // ✅ FIX: Use ConversionProgress widget with UNIFIED enum.
+                //    Map ConverterStatus → ConversionStatus correctly.
                 if (state.status == ConverterStatus.running) ...[
-                  Column(
-                    children: [
-                      LinearProgressIndicator(value: state.progress),
-                      SizedBox(height: 8.h),
-                      Text(
-                        '${(state.progress * 100).toInt()}%',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ],
+                  ConversionProgress(
+                    status: ConversionStatus.running,
+                    progress: state.progress,
+                    sourceLabel: state.sourceFormat?.label,
+                    targetLabel: state.targetFormat?.label,
                   ),
                 ] else if (state.status == ConverterStatus.done) ...[
-                  Icon(Icons.check_circle_rounded,
-                      color: const Color(0xFF2E7D32), size: 48.sp),
-                  SizedBox(height: 8.h),
-                  Text('Conversion complete!',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.titleLarge),
+                  ConversionProgress(
+                    status: ConversionStatus.done,
+                    progress: 1.0,
+                    outputPath: state.outputPath,
+                  ),
                   SizedBox(height: 16.h),
                   Row(
                     children: [
@@ -122,7 +122,21 @@ class _ConverterView extends StatelessWidget {
                       ),
                     ],
                   ),
+                ] else if (state.status == ConverterStatus.failed) ...[
+                  ConversionProgress(
+                    status: ConversionStatus.failed,
+                    progress: 0,
+                    error: state.error,
+                  ),
+                  SizedBox(height: 12.h),
+                  ElevatedButton(
+                    onPressed: () => context
+                        .read<ConverterBloc>()
+                        .add(const ConverterResetEvent()),
+                    child: const Text('Try Again'),
+                  ),
                 ] else ...[
+                  // Idle/picking → show Convert button
                   ElevatedButton.icon(
                     onPressed: state.canConvert
                         ? () => context
@@ -142,6 +156,8 @@ class _ConverterView extends StatelessWidget {
   }
 }
 
+// ── Section label ─────────────────────────────────────────────────────────────
+
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text);
   final String text;
@@ -157,6 +173,8 @@ class _SectionLabel extends StatelessWidget {
     );
   }
 }
+
+// ── Source card ───────────────────────────────────────────────────────────────
 
 class _SourceCard extends StatelessWidget {
   const _SourceCard({required this.state});
@@ -183,12 +201,11 @@ class _SourceCard extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.upload_file_rounded,
-                  color: cs.primary, size: 32.sp),
+              Icon(Icons.upload_file_rounded, color: cs.primary, size: 32.sp),
               SizedBox(height: 8.h),
               Text('Tap to select a file',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: cs.primary)),
+                  style:
+                      theme.textTheme.bodyMedium?.copyWith(color: cs.primary)),
             ],
           ),
         ),
@@ -206,7 +223,7 @@ class _SourceCard extends StatelessWidget {
           ),
           child: Center(
             child: Text(
-              state.sourceFile!.extension,
+              state.sourceFile!.extension.toUpperCase(),
               style: TextStyle(
                 color: cs.primary,
                 fontWeight: FontWeight.w800,
