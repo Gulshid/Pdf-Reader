@@ -14,8 +14,11 @@ import 'widgets/format_selector.dart';
 import 'widgets/conversion_progress.dart'; // ✅ FIX: import the widget
 
 class ConverterScreen extends StatefulWidget {
-  const ConverterScreen({super.key, this.initialFile});
+  const ConverterScreen({super.key, this.initialFile, this.isEmbedded = false});
   final PdfFileModel? initialFile;
+  /// When true the screen is embedded inside another Scaffold (e.g. a tab)
+  /// and should NOT render its own Scaffold / AppBar.
+  final bool isEmbedded;
 
   @override
   State<ConverterScreen> createState() => _ConverterScreenState();
@@ -39,21 +42,20 @@ class _ConverterScreenState extends State<ConverterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return const _ConverterView();
+    return _ConverterView(isEmbedded: widget.isEmbedded);
   }
 }
 
 class _ConverterView extends StatelessWidget {
-  const _ConverterView();
+  const _ConverterView({this.isEmbedded = false});
+  final bool isEmbedded;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Format Converter')),
-      body: BlocConsumer<ConverterBloc, ConverterState>(
+    final body = BlocConsumer<ConverterBloc, ConverterState>(
         listener: (context, state) {
           if (state.status == ConverterStatus.done) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -168,7 +170,12 @@ class _ConverterView extends StatelessWidget {
             ),
           );
         },
-      ),
+      );
+
+    if (isEmbedded) return body;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Format Converter')),
+      body: body,
     );
   }
 }

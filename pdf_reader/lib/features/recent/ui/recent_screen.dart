@@ -2,38 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../../../routes/app_router.dart';
 import '../bloc/recent_bloc.dart';
 import '../bloc/recent_event.dart';
 import '../bloc/recent_state.dart';
 
-class RecentScreen extends StatelessWidget {
-  const RecentScreen({super.key});
+class RecentScreen extends StatefulWidget {
+  const RecentScreen({super.key, this.isEmbedded = false});
+  final bool isEmbedded;
+
+  @override
+  State<RecentScreen> createState() => _RecentScreenState();
+}
+
+class _RecentScreenState extends State<RecentScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Reload recent files every time this screen is mounted so the tab
+    // reflects files added during the session (e.g. after a conversion).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<RecentBloc>().add(const RecentLoadEvent());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Recent Files'),
-        actions: [
-          BlocBuilder<RecentBloc, RecentState>(
-            builder: (context, state) {
-              if (state.files.isEmpty) return const SizedBox.shrink();
-              return TextButton(
-                onPressed: () => context
-                    .read<RecentBloc>()
-                    .add(const RecentClearEvent()),
-                child: const Text('Clear All'),
-              );
-            },
-          ),
-        ],
+    final actions = [
+      BlocBuilder<RecentBloc, RecentState>(
+        builder: (context, state) {
+          if (state.files.isEmpty) return const SizedBox.shrink();
+          return TextButton(
+            onPressed: () =>
+                context.read<RecentBloc>().add(const RecentClearEvent()),
+            child: const Text('Clear All'),
+          );
+        },
       ),
-      body: BlocBuilder<RecentBloc, RecentState>(
+    ];
+
+    final body = BlocBuilder<RecentBloc, RecentState>(
         builder: (context, state) {
           if (state.files.isEmpty) {
             return Center(
@@ -58,7 +73,13 @@ class RecentScreen extends StatelessWidget {
               final file = state.files[i];
               return Card(
                 child: ListTile(
-                  onTap: () => ctx.push(AppRouter.pdfViewer, extra: file),
+                  onTap: () {
+                    if (file.extension.toUpperCase() == 'PDF') {
+                      ctx.push(AppRouter.pdfViewer, extra: file);
+                    } else {
+                      OpenFilex.open(file.path);
+                    }
+                  },
                   leading: Container(
                     width: 40.w,
                     height: 40.w,
@@ -96,7 +117,15 @@ class RecentScreen extends StatelessWidget {
             },
           );
         },
+      );
+
+    if (widget.isEmbedded) return body;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Recent Files'),
+        actions: actions,
       ),
+      body: body,
     );
   }
 }
