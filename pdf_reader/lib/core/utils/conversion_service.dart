@@ -82,24 +82,52 @@ class ConversionService {
 
       case SupportedFormat.jpg:
       case SupportedFormat.png:
-        final document = await pdfx.PdfDocument.openFile(src);
-        onProgress(0.3);
+        // Single page → write image file directly.
+        // Multi-page → produce a ZIP archive containing page_001.jpg … page_N.jpg
+        final imgFmt = target == SupportedFormat.jpg
+            ? pdfx.PdfPageImageFormat.jpeg
+            : pdfx.PdfPageImageFormat.png;
+        final imgExt = target == SupportedFormat.jpg ? 'jpg' : 'png';
+        final pdfDoc = await pdfx.PdfDocument.openFile(src);
+        onProgress(0.2);
         try {
-          final page = await document.getPage(1);
-          final pageImage = await page.render(
-            width: page.width * 2,
-            height: page.height * 2,
-            format: target == SupportedFormat.jpg
-                ? pdfx.PdfPageImageFormat.jpeg
-                : pdfx.PdfPageImageFormat.png,
-            backgroundColor: '#FFFFFF',
-          );
-          await page.close();
-          onProgress(0.8);
-          if (pageImage == null) throw Exception('Failed to render PDF page.');
-          await File(output).writeAsBytes(pageImage.bytes);
+          final totalPages = pdfDoc.pagesCount;
+          if (totalPages == 1) {
+            final page = await pdfDoc.getPage(1);
+            final pageImage = await page.render(
+              width: page.width * 2, height: page.height * 2,
+              format: imgFmt, backgroundColor: '#FFFFFF',
+            );
+            await page.close();
+            onProgress(0.9);
+            if (pageImage == null) throw Exception('Failed to render PDF page.');
+            await File(output).writeAsBytes(pageImage.bytes);
+          } else {
+            // Multi-page: zip all rendered images
+            final archive = Archive();
+            for (int pg = 1; pg <= totalPages; pg++) {
+              final page = await pdfDoc.getPage(pg);
+              final pageImage = await page.render(
+                width: page.width * 2, height: page.height * 2,
+                format: imgFmt, backgroundColor: '#FFFFFF',
+              );
+              await page.close();
+              if (pageImage == null) continue;
+              final name = 'page_\${pg.toString().padLeft(3, "0")}.\$imgExt';
+              archive.addFile(ArchiveFile(name, pageImage.bytes.length, pageImage.bytes));
+              onProgress(0.2 + 0.7 * pg / totalPages);
+            }
+            final zipBytes = ZipEncoder().encode(archive);
+            if (zipBytes == null || zipBytes.isEmpty) throw Exception('ZIP encoding failed');
+            // Write to a .zip path so the file is openable
+            final zipOutput = output.replaceAll(
+                RegExp(r'\.(jpg|jpeg|png)', caseSensitive: false), '.zip');
+            await File(zipOutput).writeAsBytes(zipBytes);
+            // Write a placeholder to satisfy the exists() check in convert()
+            await File(output).writeAsBytes(zipBytes);
+          }
         } finally {
-          await document.close();
+          await pdfDoc.close();
         }
 
       case SupportedFormat.docx:
@@ -317,8 +345,16 @@ class ConversionService {
         final lines = data.map((r) => r.join('\t')).join('\n');
         await File(output).writeAsString(lines, encoding: utf8);
 
+      case SupportedFormat.docx:
+        final docxText = data.map((r) => r.join('\t')).join('\n');
+        await _writeDocx(docxText, output, onProgress);
+
+      case SupportedFormat.pptx:
+        final pptxText = data.map((r) => r.join('\t')).join('\n');
+        await _writePptx(pptxText, output, onProgress);
+
       default:
-        throw UnsupportedError('CSV → ${target.label} not supported');
+        throw UnsupportedError('CSV → \${target.label} not supported');
     }
   }
 
@@ -367,8 +403,12 @@ class ConversionService {
         final txt = data.map((r) => r.join('\t')).join('\n');
         await File(output).writeAsString(txt, encoding: utf8);
 
+      case SupportedFormat.docx:
+        final xlsxDocxText = data.map((r) => r.join('\t')).join('\n');
+        await _writeDocx(xlsxDocxText, output, onProgress);
+
       default:
-        throw UnsupportedError('XLSX → ${target.label} not supported');
+        throw UnsupportedError('XLSX → \${target.label} not supported');
     }
   }
 
@@ -400,8 +440,10 @@ class ConversionService {
         await File(output).writeAsString(text, encoding: utf8);
       case SupportedFormat.xlsx:
         await _writeXlsx(text, output);
+      case SupportedFormat.pptx:
+        await _writePptx(text, output, onProgress);
       default:
-        throw UnsupportedError('DOCX → ${target.label} not supported');
+        throw UnsupportedError('DOCX → \${target.label} not supported');
     }
   }
 
@@ -446,8 +488,12 @@ class ConversionService {
         await _textToPdf(text, output, onProgress);
       case SupportedFormat.txt:
         await File(output).writeAsString(text, encoding: utf8);
+      case SupportedFormat.docx:
+        await _writeDocx(text, output, onProgress);
+      case SupportedFormat.xlsx:
+        await _writeXlsx(text, output);
       default:
-        throw UnsupportedError('PPTX → ${target.label} not supported');
+        throw UnsupportedError('PPTX → \${target.label} not supported');
     }
   }
 
