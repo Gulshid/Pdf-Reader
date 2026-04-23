@@ -598,6 +598,16 @@ $body
   }
 
   // ── Write PPTX ────────────────────────────────────────────────────────────
+  //
+  // A valid PPTX requires this exact chain of relationships:
+  //   presentation.xml
+  //     └─ slideMaster1.xml   (master — defines colour map, default text styles)
+  //           └─ slideLayout1.xml  (layout — defines placeholder geometry)
+  //                 └─ slide1..N.xml  (each slide links back to the layout)
+  //
+  // Missing ANY link in this chain causes PowerPoint / WPS / LibreOffice to
+  // report the file as corrupt.  Previous versions omitted the layout entirely
+  // and left slide .rels files empty — those are the bugs fixed here.
 
   Future<void> _writePptx(
       String text, String output, ProgressCallback onProgress) async {
@@ -606,117 +616,216 @@ $body
     const linesPerSlide = 15;
     final effective = allLines.isEmpty ? ['(empty)'] : allLines;
 
+    // ── Namespaces used in every PPTX XML file ──────────────────────────────
+    const aNs  = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+    const pNs  = 'http://schemas.openxmlformats.org/presentationml/2006/main';
+    const rNs  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const pkgNs = 'http://schemas.openxmlformats.org/package/2006/relationships';
+    const ctNs  = 'http://schemas.openxmlformats.org/package/2006/content-types';
+
+    // ── Relationship type URIs ───────────────────────────────────────────────
+    const officeDoc = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
+    const slideRel     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide';
+    const masterRel    = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster';
+    const layoutRel    = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout';
+    const presPropsRel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps';
+
+    // ── Content-type values ──────────────────────────────────────────────────
+    const slideCt  = 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml';
+    const masterCt = 'application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml';
+    const layoutCt = 'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml';
+    const presCt   = 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml';
+    const presProsCt = 'application/vnd.openxmlformats-officedocument.presentationml.presProps+xml';
+
+    // ── Slide master ─────────────────────────────────────────────────────────
+    // Minimal but complete: white background, colour map, empty layout list,
+    // and default text styles so slides can resolve font sizes.
+    final masterXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<p:sldMaster xmlns:a="$aNs" xmlns:p="$pNs" xmlns:r="$rNs">'
+        '<p:cSld>'
+          '<p:bg><p:bgRef idx="1001"><a:schemeClr clr="bg1"/></p:bgRef></p:bg>'
+          '<p:spTree>'
+            '<p:nvGrpSpPr>'
+              '<p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/>'
+            '</p:nvGrpSpPr>'
+            '<p:grpSpPr>'
+              '<a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+              '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm>'
+            '</p:grpSpPr>'
+          '</p:spTree>'
+        '</p:cSld>'
+        '<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" '
+          'accent1="accent1" accent2="accent2" accent3="accent3" '
+          'accent4="accent4" accent5="accent5" accent6="accent6" '
+          'hlink="hlink" folHlink="folHlink"/>'
+        // sldLayoutIdLst must list our one layout
+        '<p:sldLayoutIdLst>'
+          '<p:sldLayoutId id="2147483649" r:id="rId_layout"/>'
+        '</p:sldLayoutIdLst>'
+        '<p:txStyles>'
+          '<p:titleStyle><a:lvl1pPr algn="l"><a:defRPr lang="en-US" sz="3600" b="0"/></a:lvl1pPr></p:titleStyle>'
+          '<p:bodyStyle><a:lvl1pPr><a:defRPr lang="en-US" sz="1800"/></a:lvl1pPr></p:bodyStyle>'
+          '<p:otherStyle><a:lvl1pPr><a:defRPr lang="en-US" sz="1800"/></a:lvl1pPr></p:otherStyle>'
+        '</p:txStyles>'
+        '</p:sldMaster>';
+
+    // Master .rels — references the slide layout
+    final masterRelsXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="$pkgNs">'
+          '<Relationship Id="rId_layout" Type="$layoutRel" Target="../slideLayouts/slideLayout1.xml"/>'
+        '</Relationships>';
+
+    // ── Slide layout ─────────────────────────────────────────────────────────
+    // "Blank" layout — no placeholder shapes.  Slides that do not use a title
+    // placeholder won't trigger a missing-placeholder validation error.
+    final layoutXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<p:sldLayout xmlns:a="$aNs" xmlns:p="$pNs" xmlns:r="$rNs" type="blank" preserve="1">'
+        '<p:cSld name="Blank">'
+          '<p:spTree>'
+            '<p:nvGrpSpPr>'
+              '<p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/>'
+            '</p:nvGrpSpPr>'
+            '<p:grpSpPr>'
+              '<a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+              '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm>'
+            '</p:grpSpPr>'
+          '</p:spTree>'
+        '</p:cSld>'
+        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>'
+        '</p:sldLayout>';
+
+    // Layout .rels — must point back to its master
+    final layoutRelsXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="$pkgNs">'
+          '<Relationship Id="rId_master" Type="$masterRel" Target="../slideMasters/slideMaster1.xml"/>'
+        '</Relationships>';
+
+    // ── Build slides ─────────────────────────────────────────────────────────
     final slideXmls = <String>[];
-    final slideRelXmls = <String>[];
 
     for (int i = 0; i < effective.length; i += linesPerSlide) {
       final chunk = effective.skip(i).take(linesPerSlide).toList();
       final paras = chunk
           .map(_xmlEscape)
-          .map((l) =>
-              '<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t>$l</a:t></a:r></a:p>')
-          .join('\n');
+          .map((l) => '<a:p><a:r><a:rPr lang="en-US" dirty="0" sz="1800"/><a:t>$l</a:t></a:r></a:p>')
+          .join('');
 
+      // Use an explicit text box (not a placeholder) so no layout
+      // placeholder resolution is needed.
       slideXmls.add(
-          '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Content"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="457200" y="274638"/><a:ext cx="8229600" cy="5944725"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>\n$paras\n</p:txBody></p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>''');
-      slideRelXmls.add(
-          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<p:sld xmlns:a="$aNs" xmlns:p="$pNs" xmlns:r="$rNs">'
+        '<p:cSld>'
+          '<p:spTree>'
+            '<p:nvGrpSpPr>'
+              '<p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/>'
+            '</p:nvGrpSpPr>'
+            '<p:grpSpPr>'
+              '<a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+              '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm>'
+            '</p:grpSpPr>'
+            // Explicit text box — no <p:ph> so layout lookup is not triggered
+            '<p:sp>'
+              '<p:nvSpPr>'
+                '<p:cNvPr id="2" name="TextBox"/>'
+                '<p:cNvSpPr txBox="1"><a:spLocks noGrp="1"/></p:cNvSpPr>'
+                '<p:nvPr/>'
+              '</p:nvSpPr>'
+              '<p:spPr>'
+                '<a:xfrm><a:off x="457200" y="457200"/>'
+                '<a:ext cx="8229600" cy="5486400"/></a:xfrm>'
+                '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+                '<a:noFill/>'
+              '</p:spPr>'
+              '<p:txBody>'
+                '<a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t"/>'
+                '<a:lstStyle/>'
+                '$paras'
+              '</p:txBody>'
+            '</p:sp>'
+          '</p:spTree>'
+        '</p:cSld>'
+        // clrMapOvr must use masterClrMapping — links to master colour scheme
+        '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>'
+        '</p:sld>'
+      );
     }
 
     final n = slideXmls.length;
+
+    // Each slide's .rels must reference its slide layout
+    String slideRelsXml(int slideIdx) =>
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="$pkgNs">'
+          '<Relationship Id="rId_layout" Type="$layoutRel" Target="../slideLayouts/slideLayout1.xml"/>'
+        '</Relationships>';
+
     final slideRefs = List.generate(
-        n, (i) => '    <p:sldId id="${256 + i}" r:id="rId${i + 1}"/>').join('\n');
-    final presRels = List.generate(
+        n, (i) => '<p:sldId id="${256 + i}" r:id="rId${i + 1}"/>').join('');
+    final presRelsList = List.generate(
         n,
-        (i) =>
-            '  <Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>').join('\n');
-    final overrides = List.generate(
+        (i) => '<Relationship Id="rId${i + 1}" Type="$slideRel" Target="slides/slide${i + 1}.xml"/>').join('');
+    final slideOverrides = List.generate(
         n,
-        (i) =>
-            '  <Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>').join('\n');
-
-    // BUG FIX: A slide master is REQUIRED by PowerPoint, WPS, and LibreOffice Impress.
-    // Without it, the PPTX opens as corrupt or completely blank. The old code had
-    // <p:sldMasterIdLst/> (empty) which tells apps to expect a master but provides none.
-    const _masterNs =
-        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
-        'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
-        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
-
-    final slideMasterXml =
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<p:sldMaster $_masterNs>'
-        '<p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr clr="bg1"/></p:bgRef></p:bg>'
-        '<p:spTree>'
-        '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
-        '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
-        '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>'
-        '</p:spTree></p:cSld>'
-        '<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" '
-        'accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" '
-        'accent6="accent6" hlink="hlink" folHlink="folHlink"/>'
-        '<p:sldLayoutIdLst/>'
-        '<p:txStyles>'
-        '<p:titleStyle><a:lvl1pPr><a:defRPr lang="en-US" sz="3600"/></a:lvl1pPr></p:titleStyle>'
-        '<p:bodyStyle><a:lvl1pPr><a:defRPr lang="en-US" sz="2400"/></a:lvl1pPr></p:bodyStyle>'
-        '<p:otherStyle><a:lvl1pPr><a:defRPr lang="en-US" sz="1800"/></a:lvl1pPr></p:otherStyle>'
-        '</p:txStyles>'
-        '</p:sldMaster>';
-
-    final slideMasterRelsXml =
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>';
+        (i) => '<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="$slideCt"/>').join('');
 
     final files = <String, List<int>>{
       '[Content_Types].xml': utf8.encode(
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-          '<Default Extension="xml" ContentType="application/xml"/>'
-          '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
-          '<Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/>'
-          // FIX: Register the slide master in content types
-          '<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>'
-          '\n$overrides\n'
+          '<Types xmlns="$ctNs">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/ppt/presentation.xml" ContentType="$presCt"/>'
+            '<Override PartName="/ppt/presProps.xml" ContentType="$presProsCt"/>'
+            '<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="$masterCt"/>'
+            '<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="$layoutCt"/>'
+            '$slideOverrides'
           '</Types>'),
+
       '_rels/.rels': utf8.encode(
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>'
+          '<Relationships xmlns="$pkgNs">'
+            '<Relationship Id="rId1" Type="$officeDoc" Target="ppt/presentation.xml"/>'
           '</Relationships>'),
+
       'ppt/presentation.xml': utf8.encode(
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-          '<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
-          'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
-          'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-          // FIX: Reference the master (was empty <p:sldMasterIdLst/> before)
-          '<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId_master"/></p:sldMasterIdLst>'
-          '<p:sldSz cx="9144000" cy="6858000" type="screen4x3"/>'
-          '<p:notesSz cx="6858000" cy="9144000"/>'
-          '<p:sldIdLst>\n$slideRefs\n</p:sldIdLst>'
-          '<p:defaultTextStyle/>'
+          '<p:presentation xmlns:a="$aNs" xmlns:p="$pNs" xmlns:r="$rNs">'
+            '<p:sldMasterIdLst>'
+              '<p:sldMasterId id="2147483648" r:id="rId_master"/>'
+            '</p:sldMasterIdLst>'
+            '<p:sldSz cx="9144000" cy="6858000" type="screen4x3"/>'
+            '<p:notesSz cx="6858000" cy="9144000"/>'
+            '<p:sldIdLst>$slideRefs</p:sldIdLst>'
+            '<p:defaultTextStyle/>'
           '</p:presentation>'),
+
       'ppt/presProps.xml': utf8.encode(
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-          '<p:presentationPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
-          '<p:extLst/></p:presentationPr>'),
+          '<p:presentationPr xmlns:p="$pNs"><p:extLst/></p:presentationPr>'),
+
       'ppt/_rels/presentation.xml.rels': utf8.encode(
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-          '\n$presRels\n'
-          '  <Relationship Id="rId${n + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps" Target="presProps.xml"/>'
-          // FIX: Add slide master relationship
-          '  <Relationship Id="rId_master" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>'
+          '<Relationships xmlns="$pkgNs">'
+            '$presRelsList'
+            '<Relationship Id="rId${n + 1}" Type="$presPropsRel" Target="presProps.xml"/>'
+            '<Relationship Id="rId_master" Type="$masterRel" Target="slideMasters/slideMaster1.xml"/>'
           '</Relationships>'),
-      // FIX: Include the actual slide master file — required for any app to open the PPTX
-      'ppt/slideMasters/slideMaster1.xml': utf8.encode(slideMasterXml),
-      'ppt/slideMasters/_rels/slideMaster1.xml.rels': utf8.encode(slideMasterRelsXml),
+
+      'ppt/slideMasters/slideMaster1.xml': utf8.encode(masterXml),
+      'ppt/slideMasters/_rels/slideMaster1.xml.rels': utf8.encode(masterRelsXml),
+
+      'ppt/slideLayouts/slideLayout1.xml': utf8.encode(layoutXml),
+      'ppt/slideLayouts/_rels/slideLayout1.xml.rels': utf8.encode(layoutRelsXml),
     };
 
     for (int i = 0; i < slideXmls.length; i++) {
       files['ppt/slides/slide${i + 1}.xml'] = utf8.encode(slideXmls[i]);
-      files['ppt/slides/_rels/slide${i + 1}.xml.rels'] =
-          utf8.encode(slideRelXmls[i]);
+      files['ppt/slides/_rels/slide${i + 1}.xml.rels'] = utf8.encode(slideRelsXml(i));
       onProgress(0.3 + 0.6 * (i + 1) / slideXmls.length);
     }
 
