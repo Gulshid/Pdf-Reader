@@ -28,11 +28,12 @@ class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
 
   // Keep all tab states alive with IndexedStack
-  // ConverterScreen gets isEmbedded:true so it skips its own Scaffold/AppBar
+  // Both ConverterScreen and RecentScreen get isEmbedded:true so they
+  // skip their own Scaffold/AppBar (they live inside HomeScreen's Scaffold).
   final List<Widget> _tabs = const [
     FilesTab(),
     ConverterScreen(isEmbedded: true),
-    RecentScreen(),
+    RecentScreen(isEmbedded: true),
   ];
 
   @override

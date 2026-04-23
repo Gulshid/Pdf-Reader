@@ -20,14 +20,15 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.pdf_reader"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = 36
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+    applicationId = "com.example.pdf_reader"
+    minSdk = flutter.minSdkVersion
+    targetSdk = 36
+    versionCode = flutter.versionCode
+    versionName = flutter.versionName
+
+    androidResources {
+        noCompress += listOf("tflite")
+        }
     }
 
     buildTypes {
@@ -41,4 +42,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
 }
