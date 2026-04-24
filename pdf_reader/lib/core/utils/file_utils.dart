@@ -28,20 +28,27 @@ class FileUtils {
     return dir;
   }
 
+  /// Sanitize a filename so it is safe for Android FileProvider and URIs.
+  /// Replaces any character that breaks content:// URIs with underscore.
+  static String sanitizeFileName(String name) {
+    return name.replaceAll(RegExp(r"""[#%&{}<>*?$!'"":@+`|=\\]"""), '_');
+  }
+
   static Future<String> buildOutputPath(
     String sourceFilePath,
     SupportedFormat targetFormat,
   ) async {
     final outDir = await getOutputDirectory();
-    final baseName = p.basenameWithoutExtension(sourceFilePath);
-    return p.join(outDir.path, '$baseName.${targetFormat.name}');
+    final rawName = p.basenameWithoutExtension(sourceFilePath);
+    final safeName = sanitizeFileName(rawName);
+    return p.join(outDir.path, '$safeName.${targetFormat.name}');
   }
 
   /// Scan a directory for supported files
   static Future<List<PdfFileModel>> scanDirectory(Directory dir) async {
     const supported = {
       '.pdf', '.docx', '.txt', '.jpg', '.jpeg',
-      '.png', '.csv', '.xlsx', '.pptx', // ✅ added pptx
+      '.png', '.csv', '.xlsx', '.pptx',
     };
     final files = <PdfFileModel>[];
 
