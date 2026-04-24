@@ -130,38 +130,7 @@ class ConversionService {
     }
   }
 
-  // ── Shared: load a font that covers the content ───────────────────────────
-  //
-  // FIX (blur/cross bug root cause #1):
-  // The old code tried system font paths and silently fell back to null.
-  // When ttFont is null, pw uses its built-in Helvetica (Type1) which only
-  // covers basic ASCII. Non-ASCII chars render as empty boxes, and on some
-  // renderers the page itself shows a grey "cross" placeholder.
-  //
-  // Strategy:
-  //   1. Try Arabic/Urdu fonts (covers RTL + Latin).
-  //   2. Try common Android Latin fonts.
-  //   3. Use pw.Font.helvetica() as a guaranteed non-null fallback.
-  //      Helvetica never causes the cross artifact; it just won't show
-  //      non-Latin glyphs, which is acceptable for a fallback.
-  // Future<pw.Font> _loadFont() async {
-  //   const List<String> fontPaths = [
-  //     '/system/fonts/NotoNaskhArabic-Regular.ttf',
-  //     '/system/fonts/NotoSansArabic-Regular.ttf',
-  //     '/system/fonts/NotoSans-Regular.ttf',
-  //     '/system/fonts/Roboto-Regular.ttf',
-  //     '/system/fonts/DroidSans.ttf',
-  //     '/system/fonts/DroidSansFallback.ttf',
-  //   ];
-  //   for (final path in fontPaths) {
-  //     try {
-  //       final fontBytes = await File(path).readAsBytes();
-  //       return pw.Font.ttf(fontBytes.buffer.asByteData());
-  //     } catch (_) {}
-  //   }
-  //   // Guaranteed fallback — never null, never causes placeholder cross.
-  //   return pw.Font.helvetica();
-  // }
+  
   Future<pw.Font> _loadFont() async {
   // ── Tier 1: system fonts (fast path on most Android devices) ──────────
   const List<String> systemPaths = [
@@ -713,40 +682,6 @@ class ConversionService {
               ));
               startRow = endRow;
             }
-        // while (startRow < totalRows) {
-        //   final endRow = (startRow + rowsPerPage < totalRows)
-        //       ? startRow + rowsPerPage
-        //       : totalRows;
-        //   final pageData = data.sublist(startRow, endRow);
-        //   pdfDoc.addPage(pw.Page(
-        //     pageFormat: PdfPageFormat.a4,
-        //     margin: const pw.EdgeInsets.all(24),
-        //     build: (ctx) => pw.Column(
-        //       crossAxisAlignment: pw.CrossAxisAlignment.start,
-        //       children: [
-        //         pw.Text(
-        //           'Page ${(startRow ~/ rowsPerPage) + 1} of ${(totalRows / rowsPerPage).ceil()}',
-        //           style: const pw.TextStyle(fontSize: 8),
-        //         ),
-        //         pw.SizedBox(height: 8),
-        //         pw.TableHelper.fromTextArray(
-        //           data: pageData,
-        //           border: pw.TableBorder.all(width: 0.5),
-        //           cellStyle: const pw.TextStyle(fontSize: 8),
-        //           headerStyle: pw.TextStyle(
-        //               fontSize: 8, fontWeight: pw.FontWeight.bold),
-        //           cellPadding: const pw.EdgeInsets.all(4),
-        //           columnWidths: {0: const pw.FlexColumnWidth()},
-        //         ),
-        //       ],
-        //     ),
-        //   ));
-        //   startRow = endRow;
-        
-        
-        
-        
-        
         onProgress(0.8);
         final pdfBytes = await pdfDoc.save();
         print('   📄 PDF generated: ${pdfBytes.length} bytes');
@@ -852,62 +787,170 @@ class ConversionService {
   // ── PPTX → * ──────────────────────────────────────────────────────────────
 
   Future<void> _fromPptx(
-    String src,
-    SupportedFormat target,
-    String output,
-    ProgressCallback onProgress,
-  ) async {
-    final bytes = await File(src).readAsBytes();
-    onProgress(0.2);
-    Archive archive;
-    try {
-      archive = ZipDecoder().decodeBytes(bytes);
-    } catch (e) {
-      throw Exception('Cannot read PPTX: $e');
-    }
-    final slideFiles = archive.files
-        .where((f) =>
-            f.name.startsWith('ppt/slides/slide') &&
-            f.name.endsWith('.xml'))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-
-    final buf = StringBuffer();
-    for (final slide in slideFiles) {
-      final xml = utf8.decode(slide.content, allowMalformed: true);
-      for (final m in RegExp(r'<a:t[^>]*>([^<]*)<\/a:t>').allMatches(xml)) {
-        final t = m.group(1)?.trim();
-        if (t != null && t.isNotEmpty) buf.writeln(t);
-      }
-      buf.writeln();
-    }
-    onProgress(0.6);
-    final text = buf.toString().trim().isEmpty
-        ? 'No extractable text in this PPTX.'
-        : buf.toString();
-
-    switch (target) {
-      case SupportedFormat.pdf:
-        await _textToPdf(text, output, onProgress);
-        break;
-      case SupportedFormat.txt:
-        await File(output).writeAsString(text, encoding: utf8);
-        break;
-      case SupportedFormat.docx:
-        await _writeDocx(text, output, onProgress);
-        break;
-      case SupportedFormat.xlsx:
-        await _writeXlsx(text, output);
-        break;
-      case SupportedFormat.csv:
-        final lines = text.split('\n').where((l) => l.trim().isNotEmpty);
-        final csv = lines.map((l) => _escapeCsv(l.trim())).join('\n');
-        await File(output).writeAsString(csv, encoding: utf8);
-        break;
-      default:
-        throw UnsupportedError('PPTX -> ${target.label} not supported');
-    }
+  String src,
+  SupportedFormat target,
+  String output,
+  ProgressCallback onProgress,
+) async {
+  final bytes = await File(src).readAsBytes();
+  onProgress(0.2);
+  Archive archive;
+  try {
+    archive = ZipDecoder().decodeBytes(bytes);
+  } catch (e) {
+    throw Exception('Cannot read PPTX: $e');
   }
+
+  final slideFiles = archive.files
+      .where((f) =>
+          f.name.startsWith('ppt/slides/slide') &&
+          f.name.endsWith('.xml') &&
+          !f.name.contains('_rels'))
+      .toList()
+    ..sort((a, b) {
+      // sort by slide number numerically: slide1, slide2 ... slide10, slide11
+      final numA = int.tryParse(
+              RegExp(r'slide(\d+)\.xml').firstMatch(a.name)?.group(1) ?? '0') ??
+          0;
+      final numB = int.tryParse(
+              RegExp(r'slide(\d+)\.xml').firstMatch(b.name)?.group(1) ?? '0') ??
+          0;
+      return numA.compareTo(numB);
+    });
+
+  // Extract text per slide — preserve slide boundaries
+  final slideTexts = <List<String>>[];
+  for (final slide in slideFiles) {
+    final xml = utf8.decode(slide.content, allowMalformed: true);
+    final lines = RegExp(r'<a:t[^>]*>(.*?)<\/a:t>', dotAll: true)
+        .allMatches(xml)
+        .map((m) => m.group(1)?.trim() ?? '')
+        .where((t) => t.isNotEmpty)
+        .toList();
+    slideTexts.add(lines.isEmpty ? ['(no text)'] : lines);
+  }
+
+  onProgress(0.4);
+
+  switch (target) {
+    case SupportedFormat.pdf:
+      // ONE PDF page per slide — preserves slide structure
+      await _pptxToPdf(slideTexts, output, onProgress);
+      break;
+    case SupportedFormat.txt:
+      final buf = StringBuffer();
+      for (int i = 0; i < slideTexts.length; i++) {
+        buf.writeln('--- Slide ${i + 1} ---');
+        for (final l in slideTexts[i]) buf.writeln(l);
+        buf.writeln();
+      }
+      await File(output).writeAsString(buf.toString(), encoding: utf8);
+      break;
+    case SupportedFormat.docx:
+      final buf = StringBuffer();
+      for (int i = 0; i < slideTexts.length; i++) {
+        buf.writeln('--- Slide ${i + 1} ---');
+        for (final l in slideTexts[i]) buf.writeln(l);
+        buf.writeln();
+      }
+      await _writeDocx(buf.toString(), output, onProgress);
+      break;
+    case SupportedFormat.xlsx:
+      final buf = StringBuffer();
+      for (int i = 0; i < slideTexts.length; i++) {
+        buf.writeln('--- Slide ${i + 1} ---');
+        for (final l in slideTexts[i]) buf.writeln(l);
+        buf.writeln();
+      }
+      await _writeXlsx(buf.toString(), output);
+      break;
+    case SupportedFormat.csv:
+      final buf = StringBuffer();
+      for (int i = 0; i < slideTexts.length; i++) {
+        for (final l in slideTexts[i]) {
+          buf.writeln(_escapeCsv('Slide ${i + 1}') + ',' + _escapeCsv(l));
+        }
+      }
+      await File(output).writeAsString(buf.toString(), encoding: utf8);
+      break;
+    default:
+      throw UnsupportedError('PPTX -> ${target.label} not supported');
+  }
+}
+
+Future<void> _pptxToPdf(
+  List<List<String>> slideTexts,
+  String output,
+  ProgressCallback onProgress,
+) async {
+  final ttFont = await _loadFont();
+  final pdfDoc = pw.Document();
+  final total = slideTexts.length;
+
+  for (int i = 0; i < total; i++) {
+    final lines = slideTexts[i];
+    final slideNumber = i + 1;
+
+    // Detect RTL content on this slide
+    final allText = lines.join(' ');
+    final isRtl = RegExp(
+      r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]',
+    ).hasMatch(allText);
+
+    pdfDoc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(40, 36, 40, 36),
+        build: (ctx) => pw.Column(
+          crossAxisAlignment: isRtl
+              ? pw.CrossAxisAlignment.end
+              : pw.CrossAxisAlignment.start,
+          children: [
+            // Slide number header
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(
+                  vertical: 6, horizontal: 10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.blueGrey800,
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Text(
+                'Slide $slideNumber / $total',
+                style: pw.TextStyle(
+                  font: ttFont,
+                  fontSize: 10,
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            pw.SizedBox(height: 16),
+
+            // Slide content
+            ...lines.map(
+              (line) => pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Text(
+                  line,
+                  style: pw.TextStyle(font: ttFont, fontSize: 11),
+                  textDirection:
+                      isRtl ? pw.TextDirection.rtl : pw.TextDirection.ltr,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    onProgress(0.4 + 0.55 * (i + 1) / total);
+  }
+
+  final pdfBytes = await pdfDoc.save();
+  if (pdfBytes.isEmpty) throw Exception('PPTX→PDF generation failed');
+  await File(output).writeAsBytes(pdfBytes);
+}
 
   // ── Text → PDF ────────────────────────────────────────────────────────────
   //
