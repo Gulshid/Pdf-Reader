@@ -1,5 +1,3 @@
-// file_utils.dart
-
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -15,21 +13,33 @@ class FileUtils {
 
   static String generateId() => _uuid.v4();
 
-  /// Returns the downloads/documents directory
+  /// Returns the output directory.
+  /// Android: app-internal Documents folder (no permission needed, ever)
+  /// iOS: app Documents directory
   static Future<Directory> getOutputDirectory() async {
-    if (Platform.isAndroid) {
-      final dir = Directory('/storage/emulated/0/Download/PdfReaderPro');
-      if (!dir.existsSync()) dir.createSync(recursive: true);
-      return dir;
+  Directory? dir;
+
+  if (Platform.isAndroid) {
+    // getExternalStorageDirectory() → /storage/emulated/0/Android/data/com.example.pdf_reader/files
+    // OpenFilex FileProvider can serve this path without extra config.
+    dir = await getExternalStorageDirectory();
+    if (dir != null) {
+      final out = Directory(p.join(dir.path, 'PdfReaderPro'));
+      if (!out.existsSync()) out.createSync(recursive: true);
+      print('📂 Output dir (external app): ${out.path}');
+      return out;
     }
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(docs.path, 'PdfReaderPro'));
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    return dir;
   }
 
+  // iOS or fallback
+  final docs = await getApplicationDocumentsDirectory();
+  final out = Directory(p.join(docs.path, 'PdfReaderPro'));
+  if (!out.existsSync()) out.createSync(recursive: true);
+  print('📂 Output dir (documents): ${out.path}');
+  return out;
+}
+
   /// Sanitize a filename so it is safe for Android FileProvider and URIs.
-  /// Replaces any character that breaks content:// URIs with underscore.
   static String sanitizeFileName(String name) {
     return name.replaceAll(RegExp(r"""[#%&{}<>*?$!'"":@+`|=\\]"""), '_');
   }
@@ -41,7 +51,9 @@ class FileUtils {
     final outDir = await getOutputDirectory();
     final rawName = p.basenameWithoutExtension(sourceFilePath);
     final safeName = sanitizeFileName(rawName);
-    return p.join(outDir.path, '$safeName.${targetFormat.name}');
+    // Add timestamp to avoid overwriting previous conversions
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return p.join(outDir.path, '${safeName}_$timestamp.${targetFormat.name}');
   }
 
   /// Scan a directory for supported files

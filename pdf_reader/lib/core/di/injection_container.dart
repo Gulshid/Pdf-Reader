@@ -10,7 +10,7 @@ final sl = GetIt.instance;
 
 Future<void> configureDependencies() async {
   // Services
-  sl.registerLazySingleton<ConversionService>(() => const ConversionService());
+  sl.registerLazySingleton<ConversionService>(() =>  ConversionService());
 
   // Cubits / Blocs
   sl.registerFactory<ThemeCubit>(() => ThemeCubit());

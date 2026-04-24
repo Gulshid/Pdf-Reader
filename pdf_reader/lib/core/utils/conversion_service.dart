@@ -1,6 +1,8 @@
+import 'package:flutter/services.dart' show rootBundle;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+// ignore: unused_import
 import 'dart:ui' show Rect;
 import 'package:archive/archive.dart';
 import 'package:image/image.dart' as img;
@@ -10,7 +12,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import 'package:excel/excel.dart' as excel_pkg;
-import 'package:docx_to_text/docx_to_text.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
@@ -20,7 +21,7 @@ import 'file_utils.dart';
 typedef ProgressCallback = void Function(double progress);
 
 class ConversionService {
-  const ConversionService();
+    ConversionService();
 
   Future<String> convert({
     required ConversionTaskModel task,
@@ -59,57 +60,67 @@ class ConversionService {
       onProgress(0.1);
       print('📍 Progress: 10%');
 
+      String actualOutputPath = outputPath;
+
       switch (task.sourceFormat) {
         case SupportedFormat.pdf:
           print('🔄 Converting PDF → ${task.targetFormat}');
-          await _fromPdf(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          actualOutputPath = await _fromPdf(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
         case SupportedFormat.txt:
           print('🔄 Converting TXT → ${task.targetFormat}');
-          await _fromTxt(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          await _fromTxt(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
         case SupportedFormat.jpg:
         case SupportedFormat.png:
           print('🔄 Converting Image → ${task.targetFormat}');
-          await _fromImage(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          await _fromImage(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
         case SupportedFormat.csv:
           print('🔄 Converting CSV → ${task.targetFormat}');
-          await _fromCsv(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          await _fromCsv(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
         case SupportedFormat.xlsx:
           print('🔄 Converting XLSX → ${task.targetFormat}');
-          await _fromXlsx(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          await _fromXlsx(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
         case SupportedFormat.docx:
           print('🔄 Converting DOCX → ${task.targetFormat}');
-          await _fromDocx(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          await _fromDocx(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
         case SupportedFormat.pptx:
           print('🔄 Converting PPTX → ${task.targetFormat}');
-          await _fromPptx(task.sourceFilePath, task.targetFormat, outputPath, onProgress);
+          await _fromPptx(
+              task.sourceFilePath, task.targetFormat, outputPath, onProgress);
           break;
       }
 
       onProgress(1.0);
       print('📍 Progress: 100%');
 
-      final outFile = File(outputPath);
+      final outFile = File(actualOutputPath);
       if (!await outFile.exists()) {
-        throw Exception('Output file was not created at: $outputPath');
+        throw Exception('Output file was not created at: $actualOutputPath');
       }
 
       final outSize = await outFile.length();
       if (outSize == 0) {
-        throw Exception('Output file is empty (0 bytes) at: $outputPath');
+        throw Exception(
+            'Output file is empty (0 bytes) at: $actualOutputPath');
       }
 
       print('\n✅ CONVERSION SUCCESSFUL!');
-      print('   File: $outputPath');
+      print('   File: $actualOutputPath');
       print('   Size: $outSize bytes');
       print('═══════════════════════════════════════════════════════\n');
 
-      return outputPath;
+      return actualOutputPath;
     } catch (e, stackTrace) {
       print('\n❌ CONVERSION FAILED!');
       print('   Error: $e');
@@ -119,9 +130,92 @@ class ConversionService {
     }
   }
 
+  // ── Shared: load a font that covers the content ───────────────────────────
+  //
+  // FIX (blur/cross bug root cause #1):
+  // The old code tried system font paths and silently fell back to null.
+  // When ttFont is null, pw uses its built-in Helvetica (Type1) which only
+  // covers basic ASCII. Non-ASCII chars render as empty boxes, and on some
+  // renderers the page itself shows a grey "cross" placeholder.
+  //
+  // Strategy:
+  //   1. Try Arabic/Urdu fonts (covers RTL + Latin).
+  //   2. Try common Android Latin fonts.
+  //   3. Use pw.Font.helvetica() as a guaranteed non-null fallback.
+  //      Helvetica never causes the cross artifact; it just won't show
+  //      non-Latin glyphs, which is acceptable for a fallback.
+  // Future<pw.Font> _loadFont() async {
+  //   const List<String> fontPaths = [
+  //     '/system/fonts/NotoNaskhArabic-Regular.ttf',
+  //     '/system/fonts/NotoSansArabic-Regular.ttf',
+  //     '/system/fonts/NotoSans-Regular.ttf',
+  //     '/system/fonts/Roboto-Regular.ttf',
+  //     '/system/fonts/DroidSans.ttf',
+  //     '/system/fonts/DroidSansFallback.ttf',
+  //   ];
+  //   for (final path in fontPaths) {
+  //     try {
+  //       final fontBytes = await File(path).readAsBytes();
+  //       return pw.Font.ttf(fontBytes.buffer.asByteData());
+  //     } catch (_) {}
+  //   }
+  //   // Guaranteed fallback — never null, never causes placeholder cross.
+  //   return pw.Font.helvetica();
+  // }
+  Future<pw.Font> _loadFont() async {
+  // ── Tier 1: system fonts (fast path on most Android devices) ──────────
+  const List<String> systemPaths = [
+    '/system/fonts/Roboto-Regular.ttf',
+    '/system/fonts/NotoSans-Regular.ttf',
+    '/system/fonts/DroidSans.ttf',
+    '/system/fonts/DroidSansFallback.ttf',
+    '/system/fonts/NotoNaskhArabic-Regular.ttf',
+    '/system/fonts/NotoSansArabic-Regular.ttf',
+  ];
+  for (final path in systemPaths) {
+    try {
+      final f = File(path);
+      if (await f.exists()) {
+        final bytes = await f.readAsBytes();
+        if (bytes.isNotEmpty) {
+          print('✅ _loadFont: system → $path');
+          return pw.Font.ttf(bytes.buffer.asByteData());
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ── Tier 2: bundled asset ──────────────────────────────────────────────
+  try {
+    final data = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    print('✅ _loadFont: asset bundle');
+    return pw.Font.ttf(data);
+  } catch (e) {
+    print('❌ _loadFont: asset failed → $e');
+  }
+
+  // ── Tier 3: copy asset to temp file and load from disk ─────────────────
+  // Workaround for devices where rootBundle.load works but pw.Font.ttf
+  // rejects the ByteData from the asset bundle directly.
+  try {
+    final data = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final tempDir = await getTemporaryDirectory();
+    final tempFont = File(p.join(tempDir.path, 'NotoSans-Regular.ttf'));
+    await tempFont.writeAsBytes(data.buffer.asUint8List());
+    final bytes = await tempFont.readAsBytes();
+    print('✅ _loadFont: asset→tempfile');
+    return pw.Font.ttf(bytes.buffer.asByteData());
+  } catch (e) {
+    print('❌ _loadFont: tempfile fallback failed → $e');
+  }
+
+  // ── Tier 4: absolute last resort ──────────────────────────────────────
+  print('⚠️ _loadFont: all tiers failed, using courier');
+  return pw.Font.courier();
+}
   // ── PDF → * ───────────────────────────────────────────────────────────────
 
-  Future<void> _fromPdf(
+  Future<String> _fromPdf(
     String src,
     SupportedFormat target,
     String output,
@@ -131,10 +225,15 @@ class ConversionService {
       case SupportedFormat.txt:
         final text = await _extractTextFromPdf(src, onProgress);
         await File(output).writeAsString(text, encoding: utf8);
-        break;
+        return output;
 
       case SupportedFormat.jpg:
       case SupportedFormat.png:
+        // FIX (blur/cross bug root cause #2):
+        // pdfx renders pages to raw RGBA pixel data when format is jpeg/png —
+        // the `.bytes` field is the *encoded* image bytes (JPEG or PNG),
+        // which IS correct for pdfx >= 2.x. However the resolution was too
+        // low (1x scale) causing blur. Bumped to 3x and added a quality guard.
         final imgFmt = target == SupportedFormat.jpg
             ? pdfx.PdfPageImageFormat.jpeg
             : pdfx.PdfPageImageFormat.png;
@@ -146,64 +245,72 @@ class ConversionService {
           if (totalPages == 1) {
             final page = await pdfDoc.getPage(1);
             final pageImage = await page.render(
-              width: page.width * 2,
-              height: page.height * 2,
+              width: page.width * 3,   // FIX: was 2x → now 3x for sharpness
+              height: page.height * 3,
               format: imgFmt,
               backgroundColor: '#FFFFFF',
             );
             await page.close();
             onProgress(0.9);
             if (pageImage == null) throw Exception('Failed to render PDF page.');
+            // FIX: validate bytes are non-empty before writing
+            if (pageImage.bytes.isEmpty) {
+              throw Exception('Rendered page produced empty bytes.');
+            }
             await File(output).writeAsBytes(pageImage.bytes);
+            return output;
           } else {
+            // Multi-page → ZIP of images
+            final zipOutput = output.replaceAll(
+                RegExp(r'\.(jpg|jpeg|png)$', caseSensitive: false), '.zip');
             final archive = Archive();
             for (int pg = 1; pg <= totalPages; pg++) {
               final page = await pdfDoc.getPage(pg);
               final pageImage = await page.render(
-                width: page.width * 2,
-                height: page.height * 2,
+                width: page.width * 3,   // FIX: was 2x → 3x
+                height: page.height * 3,
                 format: imgFmt,
                 backgroundColor: '#FFFFFF',
               );
               await page.close();
-              if (pageImage == null) continue;
+              if (pageImage == null || pageImage.bytes.isEmpty) continue;
               final name = 'page_${pg.toString().padLeft(3, "0")}.$imgExt';
-              archive.addFile(ArchiveFile(name, pageImage.bytes.length, pageImage.bytes));
+              archive.addFile(
+                  ArchiveFile(name, pageImage.bytes.length, pageImage.bytes));
               onProgress(0.2 + 0.7 * pg / totalPages);
             }
             final zipBytes = ZipEncoder().encode(archive);
-            if (zipBytes == null || zipBytes.isEmpty) throw Exception('ZIP encoding failed');
-            final zipOutput = output.replaceAll(
-              RegExp(r'\.(jpg|jpeg|png)', caseSensitive: false), '.zip');
+            if (zipBytes == null || zipBytes.isEmpty) {
+              throw Exception('ZIP encoding failed');
+            }
             await File(zipOutput).writeAsBytes(zipBytes);
-            await File(output).writeAsBytes(zipBytes);
+            return zipOutput;
           }
         } finally {
           await pdfDoc.close();
         }
-        break;
 
       case SupportedFormat.docx:
         final text = await _extractTextFromPdf(src, onProgress);
         await _writeDocx(text, output, onProgress);
-        break;
+        return output;
 
       case SupportedFormat.xlsx:
         final text = await _extractTextFromPdf(src, onProgress);
         await _writeXlsx(text, output);
-        break;
+        return output;
 
       case SupportedFormat.csv:
         final text = await _extractTextFromPdf(src, onProgress);
         final lines = text.split('\n').where((l) => l.trim().isNotEmpty);
         final csv = lines.map((l) => _escapeCsv(l.trim())).join('\n');
         await File(output).writeAsString(csv, encoding: utf8);
-        break;
+        return output;
 
       case SupportedFormat.pptx:
         final text = await _extractTextFromPdf(src, onProgress);
         await _writePptx(text, output, onProgress);
-        break;
+        return output;
 
       default:
         throw UnsupportedError('PDF -> ${target.label} not supported');
@@ -211,112 +318,97 @@ class ConversionService {
   }
 
   Future<String> _extractTextFromPdf(
-  String src,
-  ProgressCallback onProgress,
-) async {
-  final bytes = await File(src).readAsBytes();
-  final sfDoc = sf.PdfDocument(inputBytes: bytes);
-  onProgress(0.2);
+    String src,
+    ProgressCallback onProgress,
+  ) async {
+    final bytes = await File(src).readAsBytes();
+    final sfDoc = sf.PdfDocument(inputBytes: bytes);
+    onProgress(0.2);
 
-  final buffer = StringBuffer();
-  final extractor = sf.PdfTextExtractor(sfDoc);
-  final pageCount = sfDoc.pages.count;
+    final buffer = StringBuffer();
+    final extractor = sf.PdfTextExtractor(sfDoc);
+    final pageCount = sfDoc.pages.count;
 
-  for (int i = 0; i < pageCount; i++) {
-    final pageText = extractor.extractText(
-      startPageIndex: i,
-      endPageIndex: i,
-    );
-    if (pageText.trim().isNotEmpty) {
-      // ── FIX: rejoin soft-wrapped lines into proper paragraphs ──────────
-      // Syncfusion breaks lines at page width. Lines ending with a hyphen
-      // are mid-word breaks. Lines that don't end with sentence-ending
-      // punctuation are soft wraps — join them with a space.
-      // Empty lines = real paragraph breaks — preserve them.
-      final rawLines = pageText.split('\n');
-      final rejoined = StringBuffer();
-      for (int j = 0; j < rawLines.length; j++) {
-        final line = rawLines[j].trimRight();
-
-        if (line.isEmpty) {
-          // Real paragraph break — flush with double newline
-          rejoined.write('\n\n');
-          continue;
-        }
-
-        if (line.endsWith('-')) {
-          // Mid-word hyphen break — join without space, remove hyphen
-          rejoined.write(line.substring(0, line.length - 1));
-          continue;
-        }
-
-        // Check if next non-empty line starts with lowercase → soft wrap
-        final nextLine = rawLines.skip(j + 1).firstWhere(
-          (l) => l.trim().isNotEmpty,
-          orElse: () => '',
-        );
-        final nextStartsLower = nextLine.isNotEmpty &&
-            nextLine.trimLeft()[0] == nextLine.trimLeft()[0].toLowerCase() &&
-            nextLine.trimLeft()[0] != nextLine.trimLeft()[0].toUpperCase();
-
-        if (nextStartsLower) {
-          // Soft wrap — join with space
-          rejoined.write('$line ');
-        } else {
-          // End of sentence or heading — preserve newline
-          rejoined.write('$line\n');
-        }
-      }
-
-      buffer.write(rejoined.toString().trim());
-      buffer.write('\n\n'); // page separator
-    }
-    onProgress(0.2 + 0.3 * (i + 1) / pageCount);
-  }
-
-  sfDoc.dispose();
-
-  final directText = buffer.toString().trim();
-  if (directText.isNotEmpty) return directText;
-
-  // OCR fallback for scanned PDFs
-  final ocrBuffer = StringBuffer();
-  final pdfxDoc = await pdfx.PdfDocument.openFile(src);
-  final tempDir = await getTemporaryDirectory();
-  final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-
-  try {
-    for (int i = 1; i <= pdfxDoc.pagesCount; i++) {
-      final page = await pdfxDoc.getPage(i);
-      final rendered = await page.render(
-        width: page.width * 2,
-        height: page.height * 2,
-        format: pdfx.PdfPageImageFormat.png,
-        backgroundColor: '#FFFFFF',
+    for (int i = 0; i < pageCount; i++) {
+      final pageText = extractor.extractText(
+        startPageIndex: i,
+        endPageIndex: i,
       );
-      await page.close();
-      if (rendered == null) continue;
-
-      final tmpFile = File(p.join(tempDir.path, 'ocr_page_$i.png'));
-      await tmpFile.writeAsBytes(rendered.bytes);
-      final inputImage = InputImage.fromFile(tmpFile);
-      final recognizedText = await recognizer.processImage(inputImage);
-      if (recognizedText.text.trim().isNotEmpty) {
-        ocrBuffer.writeln(recognizedText.text);
+      if (pageText.trim().isNotEmpty) {
+        final rawLines = pageText.split('\n');
+        final rejoined = StringBuffer();
+        for (int j = 0; j < rawLines.length; j++) {
+          final line = rawLines[j].trimRight();
+          if (line.isEmpty) {
+            rejoined.write('\n\n');
+            continue;
+          }
+          if (line.endsWith('-')) {
+            rejoined.write(line.substring(0, line.length - 1));
+            continue;
+          }
+          final nextLine = rawLines.skip(j + 1).firstWhere(
+                (l) => l.trim().isNotEmpty,
+                orElse: () => '',
+              );
+          final nextStartsLower = nextLine.isNotEmpty &&
+              nextLine.trimLeft()[0] == nextLine.trimLeft()[0].toLowerCase() &&
+              nextLine.trimLeft()[0] != nextLine.trimLeft()[0].toUpperCase();
+          if (nextStartsLower) {
+            rejoined.write('$line ');
+          } else {
+            rejoined.write('$line\n');
+          }
+        }
+        buffer.write(rejoined.toString().trim());
+        buffer.write('\n\n');
       }
-      await tmpFile.delete();
-      onProgress(0.5 + 0.45 * i / pdfxDoc.pagesCount);
+      onProgress(0.2 + 0.3 * (i + 1) / pageCount);
     }
-  } finally {
-    await pdfxDoc.close();
-    recognizer.close();
-  }
 
-  final ocrText = ocrBuffer.toString().trim();
-  return ocrText.isNotEmpty
-      ? ocrText
-      : 'No text could be extracted from this PDF (fully image-based with no readable text).';
-}
+    sfDoc.dispose();
+
+    final directText = buffer.toString().trim();
+    if (directText.isNotEmpty) return directText;
+
+    // OCR fallback for scanned/image-only PDFs
+    final ocrBuffer = StringBuffer();
+    final pdfxDoc = await pdfx.PdfDocument.openFile(src);
+    final tempDir = await getTemporaryDirectory();
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
+    try {
+      for (int i = 1; i <= pdfxDoc.pagesCount; i++) {
+        final page = await pdfxDoc.getPage(i);
+        final rendered = await page.render(
+          width: page.width * 2,
+          height: page.height * 2,
+          format: pdfx.PdfPageImageFormat.png,
+          backgroundColor: '#FFFFFF',
+        );
+        await page.close();
+        if (rendered == null || rendered.bytes.isEmpty) continue;
+
+        final tmpFile = File(p.join(tempDir.path, 'ocr_page_$i.png'));
+        await tmpFile.writeAsBytes(rendered.bytes);
+        final inputImage = InputImage.fromFile(tmpFile);
+        final recognizedText = await recognizer.processImage(inputImage);
+        if (recognizedText.text.trim().isNotEmpty) {
+          ocrBuffer.writeln(recognizedText.text);
+        }
+        await tmpFile.delete();
+        onProgress(0.5 + 0.45 * i / pdfxDoc.pagesCount);
+      }
+    } finally {
+      await pdfxDoc.close();
+      recognizer.close();
+    }
+
+    final ocrText = ocrBuffer.toString().trim();
+    return ocrText.isNotEmpty
+        ? ocrText
+        : 'No text could be extracted from this PDF (fully image-based with no readable text).';
+  }
 
   // ── TXT → * ───────────────────────────────────────────────────────────────
 
@@ -362,12 +454,30 @@ class ConversionService {
 
     switch (target) {
       case SupportedFormat.pdf:
+        // FIX (blur/cross bug root cause #3):
+        // The old code passed raw file bytes directly to pw.MemoryImage().
+        // pw.MemoryImage accepts JPEG or PNG bytes, but if the format is
+        // ambiguous or the `image` package decodes it differently, the pw
+        // renderer shows a grey cross placeholder instead of the image.
+        //
+        // Fix: Always decode with the `image` package first, then re-encode
+        // as PNG (lossless, always valid for pw), then wrap in pw.MemoryImage.
+        // This guarantees pw always receives valid PNG bytes it can render.
+        final decoded = img.decodeImage(bytes);
+        if (decoded == null) throw Exception('Cannot decode image: $src');
+        final pngBytes = Uint8List.fromList(img.encodePng(decoded));
+
+        // FIX: Use proper A4 margins (not zero) so the image isn't clipped,
+        // and use pw.BoxFit.contain so it fits within the page correctly.
         final pdfDoc = pw.Document();
         pdfDoc.addPage(pw.Page(
           pageFormat: PdfPageFormat.a4,
-          margin: pw.EdgeInsets.zero,
+          margin: const pw.EdgeInsets.all(20),
           build: (ctx) => pw.Center(
-            child: pw.Image(pw.MemoryImage(bytes), fit: pw.BoxFit.contain),
+            child: pw.Image(
+              pw.MemoryImage(pngBytes),
+              fit: pw.BoxFit.contain,
+            ),
           ),
         ));
         onProgress(0.7);
@@ -377,12 +487,15 @@ class ConversionService {
         break;
 
       case SupportedFormat.jpg:
-        if (src.toLowerCase().endsWith('.jpg') || src.toLowerCase().endsWith('.jpeg')) {
+        if (src.toLowerCase().endsWith('.jpg') ||
+            src.toLowerCase().endsWith('.jpeg')) {
           await File(output).writeAsBytes(bytes);
         } else {
+          // FIX: decode then re-encode to ensure valid JPEG output
           final d = img.decodeImage(bytes);
           if (d == null) throw Exception('Cannot decode image');
-          await File(output).writeAsBytes(img.encodeJpg(d, quality: 90));
+          await File(output).writeAsBytes(
+              Uint8List.fromList(img.encodeJpg(d, quality: 92)));
         }
         break;
 
@@ -392,7 +505,8 @@ class ConversionService {
         } else {
           final d = img.decodeImage(bytes);
           if (d == null) throw Exception('Cannot decode image');
-          await File(output).writeAsBytes(img.encodePng(d));
+          await File(output)
+              .writeAsBytes(Uint8List.fromList(img.encodePng(d)));
         }
         break;
 
@@ -417,18 +531,32 @@ class ConversionService {
     switch (target) {
       case SupportedFormat.pdf:
         final pdfDoc = pw.Document();
-        pdfDoc.addPage(pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (ctx) => pw.TableHelper.fromTextArray(
-            data: data,
-            border: pw.TableBorder.all(),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            headerStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
-          ),
-        ));
+        const csvRowsPerPage = 30;
+        final csvTotalRows = data.length;
+        int csvStart = 0;
+        while (csvStart < csvTotalRows) {
+          final csvEnd = (csvStart + csvRowsPerPage < csvTotalRows)
+              ? csvStart + csvRowsPerPage
+              : csvTotalRows;
+          final pageData = data.sublist(csvStart, csvEnd);
+          pdfDoc.addPage(pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(24),
+            build: (ctx) => pw.TableHelper.fromTextArray(
+              data: pageData,
+              border: pw.TableBorder.all(width: 0.5),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              headerStyle:
+                  pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+              cellPadding: const pw.EdgeInsets.all(4),
+            ),
+          ));
+          csvStart = csvEnd;
+        }
         onProgress(0.7);
-        await File(output).writeAsBytes(await pdfDoc.save());
+        final csvPdfBytes = await pdfDoc.save();
+        if (csvPdfBytes.isEmpty) throw Exception('CSV→PDF generation failed');
+        await File(output).writeAsBytes(csvPdfBytes);
         break;
 
       case SupportedFormat.xlsx:
@@ -436,7 +564,8 @@ class ConversionService {
         final ex = excel_pkg.Excel.createExcel();
         final sheet = ex['Sheet1'];
         for (final row in data) {
-          sheet.appendRow(row.map((c) => excel_pkg.TextCellValue(c.trim())).toList());
+          sheet.appendRow(
+              row.map((c) => excel_pkg.TextCellValue(c.trim())).toList());
         }
         final b = ex.save();
         if (b == null) throw Exception('XLSX encode failed');
@@ -466,186 +595,188 @@ class ConversionService {
   // ── XLSX → * ──────────────────────────────────────────────────────────────
 
   Future<void> _fromXlsx(
-  String src,
-  SupportedFormat target,
-  String output,
-  ProgressCallback onProgress,
-) async {
-  print('   📊 Reading XLSX file: $src');
+    String src,
+    SupportedFormat target,
+    String output,
+    ProgressCallback onProgress,
+  ) async {
+    print('   📊 Reading XLSX file: $src');
 
-  final bytes = await File(src).readAsBytes();
-  print('   📊 XLSX size: ${bytes.length} bytes');
+    final bytes = await File(src).readAsBytes();
+    print('   📊 XLSX size: ${bytes.length} bytes');
 
-  onProgress(0.3);
+    onProgress(0.3);
 
-  final ex = excel_pkg.Excel.decodeBytes(bytes);
-  if (ex.tables.isEmpty) {
-    throw Exception('XLSX has no sheets');
-  }
-
-  print('   📊 Sheets found: ${ex.tables.keys.join(', ')}');
-
-  final sheet = ex.tables[ex.tables.keys.first]!;
-  onProgress(0.5);
-
-  // Debug raw cell info
-  if (sheet.rows.isNotEmpty && sheet.rows.first.isNotEmpty) {
-    print('   📊 Raw first cell type: ${sheet.rows.first.first?.value.runtimeType}');
-    print('   📊 Raw first cell value: ${sheet.rows.first.first?.value}');
-  }
-
-  // Safe typed cell extraction
-  final rows = <List<String>>[];
-  for (final row in sheet.rows) {
-    final cells = row.map((c) {
-      if (c == null) return '';
-      final v = c.value;
-      if (v == null) return '';
-      if (v is excel_pkg.TextCellValue)   return v.value.toString();
-      if (v is excel_pkg.IntCellValue)    return v.value.toString();
-      if (v is excel_pkg.DoubleCellValue) return v.value.toString();
-      if (v is excel_pkg.BoolCellValue)   return v.value.toString();
-      if (v is excel_pkg.DateCellValue) {
-        try {
-          return '${v.year}-${v.month.toString().padLeft(2, '0')}-${v.day.toString().padLeft(2, '0')}';
-        } catch (_) {
-          return v.toString();
-        }
-      }
-      if (v is excel_pkg.DateTimeCellValue) {
-        try {
-          return '${v.year}-${v.month.toString().padLeft(2, '0')}-${v.day.toString().padLeft(2, '0')} '
-              '${v.hour.toString().padLeft(2, '0')}:${v.minute.toString().padLeft(2, '0')}';
-        } catch (_) {
-          return v.toString();
-        }
-      }
-      if (v is excel_pkg.TimeCellValue) {
-        try {
-          return '${v.hour.toString().padLeft(2, '0')}:${v.minute.toString().padLeft(2, '0')}:${v.second.toString().padLeft(2, '0')}';
-        } catch (_) {
-          return v.toString();
-        }
-      }
-      if (v is excel_pkg.FormulaCellValue) {
-        return v.toString()
-            .replaceAll('FormulaCellValue(', '')
-            .replaceAll(')', '');
-      }
-      return v.toString();
-    }).toList();
-
-    if (cells.any((c) => c.trim().isNotEmpty)) {
-      rows.add(cells);
-    }
-  }
-
-  print('   📊 Rows extracted: ${rows.length}');
-  if (rows.isNotEmpty) {
-    print('   📊 First row:  ${rows.first.take(5).join(' | ')}');
-  }
-  if (rows.length > 1) {
-    print('   📊 Second row: ${rows[1].take(5).join(' | ')}');
-  }
-
-  if (rows.isEmpty) {
-    _assertTextNotEmpty('', 'XLSX');
-  }
-
-  final data = rows.isEmpty ? [['(empty)']] : rows;
-
-  switch (target) {
-    case SupportedFormat.pdf:
-    print('   📄 Generating PDF from XLSX data...');
-    final pdfDoc = pw.Document();
-
-    // Split data into chunks — 30 rows per page fits A4 comfortably
-    const rowsPerPage = 30;
-    final totalRows = data.length;
-    int startRow = 0;
-
-    while (startRow < totalRows) {
-      final endRow = (startRow + rowsPerPage < totalRows)
-          ? startRow + rowsPerPage
-          : totalRows;
-      final pageData = data.sublist(startRow, endRow);
-
-      pdfDoc.addPage(pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(24),
-        build: (ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            // Page number header
-            pw.Text(
-              'Page ${(startRow ~/ rowsPerPage) + 1} of ${(totalRows / rowsPerPage).ceil()}',
-              style: const pw.TextStyle(fontSize: 8),
-            ),
-            pw.SizedBox(height: 8),
-            // Table for this page's rows
-            pw.TableHelper.fromTextArray(
-              data: pageData,
-              border: pw.TableBorder.all(width: 0.5),
-              cellStyle: const pw.TextStyle(fontSize: 8),
-              headerStyle: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-              ),
-              cellPadding: const pw.EdgeInsets.all(4),
-              columnWidths: {
-                0: const pw.FlexColumnWidth(),
-              },
-            ),
-          ],
-        ),
-      ));
-
-      startRow = endRow;
+    final ex = excel_pkg.Excel.decodeBytes(bytes);
+    if (ex.tables.isEmpty) {
+      throw Exception('XLSX has no sheets');
     }
 
-    onProgress(0.8);
-    final pdfBytes = await pdfDoc.save();
-    print('   📄 PDF generated: ${pdfBytes.length} bytes');
-    await File(output).writeAsBytes(pdfBytes);
-    print('   📄 PDF saved to: $output');
-    break;
+    print('   📊 Sheets found: ${ex.tables.keys.join(', ')}');
 
-    case SupportedFormat.csv:
-      print('   📊 Generating CSV...');
-      final csv = data.map((r) => r.map(_escapeCsv).join(',')).join('\n');
-      print('   📊 CSV length: ${csv.length} characters');
-      await File(output).writeAsString(csv, encoding: utf8);
-      print('   📊 CSV saved to: $output');
-      break;
+    final sheet = ex.tables[ex.tables.keys.first]!;
+    onProgress(0.5);
 
-    case SupportedFormat.txt:
-      print('   📝 Generating TXT...');
-      final txt = data.map((r) => r.join('\t')).join('\n');
-      print('   📝 TXT length: ${txt.length} characters');
-      await File(output).writeAsString(txt, encoding: utf8);
-      print('   📝 TXT saved to: $output');
-      break;
+    final rows = <List<String>>[];
+    for (final row in sheet.rows) {
+      final cells = row.map((c) {
+        if (c == null) return '';
+        final v = c.value;
+        if (v == null) return '';
+        if (v is excel_pkg.TextCellValue) return v.value.toString();
+        if (v is excel_pkg.IntCellValue) return v.value.toString();
+        if (v is excel_pkg.DoubleCellValue) return v.value.toString();
+        if (v is excel_pkg.BoolCellValue) return v.value.toString();
+        if (v is excel_pkg.DateCellValue) {
+          try {
+            return '${v.year}-${v.month.toString().padLeft(2, '0')}-${v.day.toString().padLeft(2, '0')}';
+          } catch (_) {
+            return v.toString();
+          }
+        }
+        if (v is excel_pkg.DateTimeCellValue) {
+          try {
+            return '${v.year}-${v.month.toString().padLeft(2, '0')}-${v.day.toString().padLeft(2, '0')} '
+                '${v.hour.toString().padLeft(2, '0')}:${v.minute.toString().padLeft(2, '0')}';
+          } catch (_) {
+            return v.toString();
+          }
+        }
+        if (v is excel_pkg.TimeCellValue) {
+          try {
+            return '${v.hour.toString().padLeft(2, '0')}:${v.minute.toString().padLeft(2, '0')}:${v.second.toString().padLeft(2, '0')}';
+          } catch (_) {
+            return v.toString();
+          }
+        }
+        if (v is excel_pkg.FormulaCellValue) {
+          return v
+              .toString()
+              .replaceAll('FormulaCellValue(', '')
+              .replaceAll(')', '');
+        }
+        return v.toString();
+      }).toList();
 
-    case SupportedFormat.docx:
-      print('   📝 Generating DOCX...');
-      final docxText = data.map((r) => r.join('\t')).join('\n');
-      print('   📝 Text length: ${docxText.length} characters');
-      await _writeDocx(docxText, output, onProgress);
-      print('   📝 DOCX saved to: $output');
-      break;
+      if (cells.any((c) => c.trim().isNotEmpty)) {
+        rows.add(cells);
+      }
+    }
 
-    case SupportedFormat.pptx:
-      print('   📊 Generating PPTX...');
-      final pptxText = data.map((r) => r.join('\t')).join('\n');
-      print('   📊 Text length: ${pptxText.length} characters');
-      await _writePptx(pptxText, output, onProgress);
-      print('   📊 PPTX saved to: $output');
-      break;
+    print('   📊 Rows extracted: ${rows.length}');
+    if (rows.isNotEmpty) {
+      print('   📊 First row:  ${rows.first.take(5).join(' | ')}');
+    }
 
-    default:
-      throw UnsupportedError('XLSX -> ${target.label} not supported');
+    if (rows.isEmpty) {
+      _assertTextNotEmpty('', 'XLSX');
+    }
+
+    final data = rows.isEmpty ? [['(empty)']] : rows;
+
+    switch (target) {
+      case SupportedFormat.pdf:
+        print('   📄 Generating PDF from XLSX data...');
+        final pdfDoc = pw.Document();
+        const rowsPerPage = 30;
+        final totalRows = data.length;
+        int startRow = 0;
+
+        // REPLACE this block inside _fromXlsx → case SupportedFormat.pdf:
+            while (startRow < totalRows) {
+              final endRow = (startRow + rowsPerPage < totalRows)
+                  ? startRow + rowsPerPage
+                  : totalRows;
+              final pageData = data.sublist(startRow, endRow);
+              final capturedStart = startRow;          // ← ADD THIS
+              pdfDoc.addPage(pw.Page(
+                pageFormat: PdfPageFormat.a4,
+                margin: const pw.EdgeInsets.all(24),
+                build: (ctx) => pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Page ${(capturedStart ~/ rowsPerPage) + 1} of ${(totalRows / rowsPerPage).ceil()}',  // ← USE capturedStart
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                    pw.SizedBox(height: 8),
+                    pw.TableHelper.fromTextArray(
+                      data: pageData,
+                      border: pw.TableBorder.all(width: 0.5),
+                      cellStyle: const pw.TextStyle(fontSize: 8),
+                      headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                      cellPadding: const pw.EdgeInsets.all(4),
+                      columnWidths: {0: const pw.FlexColumnWidth()},
+                    ),
+                  ],
+                ),
+              ));
+              startRow = endRow;
+            }
+        // while (startRow < totalRows) {
+        //   final endRow = (startRow + rowsPerPage < totalRows)
+        //       ? startRow + rowsPerPage
+        //       : totalRows;
+        //   final pageData = data.sublist(startRow, endRow);
+        //   pdfDoc.addPage(pw.Page(
+        //     pageFormat: PdfPageFormat.a4,
+        //     margin: const pw.EdgeInsets.all(24),
+        //     build: (ctx) => pw.Column(
+        //       crossAxisAlignment: pw.CrossAxisAlignment.start,
+        //       children: [
+        //         pw.Text(
+        //           'Page ${(startRow ~/ rowsPerPage) + 1} of ${(totalRows / rowsPerPage).ceil()}',
+        //           style: const pw.TextStyle(fontSize: 8),
+        //         ),
+        //         pw.SizedBox(height: 8),
+        //         pw.TableHelper.fromTextArray(
+        //           data: pageData,
+        //           border: pw.TableBorder.all(width: 0.5),
+        //           cellStyle: const pw.TextStyle(fontSize: 8),
+        //           headerStyle: pw.TextStyle(
+        //               fontSize: 8, fontWeight: pw.FontWeight.bold),
+        //           cellPadding: const pw.EdgeInsets.all(4),
+        //           columnWidths: {0: const pw.FlexColumnWidth()},
+        //         ),
+        //       ],
+        //     ),
+        //   ));
+        //   startRow = endRow;
+        
+        
+        
+        
+        
+        onProgress(0.8);
+        final pdfBytes = await pdfDoc.save();
+        print('   📄 PDF generated: ${pdfBytes.length} bytes');
+        await File(output).writeAsBytes(pdfBytes);
+        break;
+
+      case SupportedFormat.csv:
+        final csv = data.map((r) => r.map(_escapeCsv).join(',')).join('\n');
+        await File(output).writeAsString(csv, encoding: utf8);
+        break;
+
+      case SupportedFormat.txt:
+        final txt = data.map((r) => r.join('\t')).join('\n');
+        await File(output).writeAsString(txt, encoding: utf8);
+        break;
+
+      case SupportedFormat.docx:
+        final docxText = data.map((r) => r.join('\t')).join('\n');
+        await _writeDocx(docxText, output, onProgress);
+        break;
+
+      case SupportedFormat.pptx:
+        final pptxText = data.map((r) => r.join('\t')).join('\n');
+        await _writePptx(pptxText, output, onProgress);
+        break;
+
+      default:
+        throw UnsupportedError('XLSX -> ${target.label} not supported');
+    }
   }
-}
 
   // ── DOCX → * ──────────────────────────────────────────────────────────────
 
@@ -674,7 +805,8 @@ class ConversionService {
 
     final buf = StringBuffer();
     bool lastWasParagraph = false;
-    for (final m in RegExp(r'<w:p[ >].*?</w:p>', dotAll: true).allMatches(xml)) {
+    for (final m
+        in RegExp(r'<w:p[ >].*?</w:p>', dotAll: true).allMatches(xml)) {
       final paraXml = m.group(0)!;
       final texts = RegExp(r'<w:t[^>]*>([^<]*)</w:t>')
           .allMatches(paraXml)
@@ -734,7 +866,9 @@ class ConversionService {
       throw Exception('Cannot read PPTX: $e');
     }
     final slideFiles = archive.files
-        .where((f) => f.name.startsWith('ppt/slides/slide') && f.name.endsWith('.xml'))
+        .where((f) =>
+            f.name.startsWith('ppt/slides/slide') &&
+            f.name.endsWith('.xml'))
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
 
@@ -776,78 +910,68 @@ class ConversionService {
   }
 
   // ── Text → PDF ────────────────────────────────────────────────────────────
-
+  //
+  // FIX (blur/cross bug root cause #4):
+  // The old implementation called `_loadFont()` inline and left ttFont null
+  // on failure. A null font passed to pw.TextStyle causes the pw renderer to
+  // fall back to a built-in Helvetica stub that only covers ASCII — on some
+  // Android PDF viewers this renders as a grey cross or empty page.
+  //
+  // Fix: Use the new `_loadFont()` helper which guarantees a non-null font,
+  // and always set `textDirection` correctly based on content detection.
   Future<void> _textToPdf(
     String text,
     String output,
     ProgressCallback onProgress,
   ) async {
-    final lines = (text.trim().isEmpty ? '(empty)' : text).split('\n');
-    final sfDoc = sf.PdfDocument();
-    final brush = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
+    final content = text.trim().isEmpty ? '(empty)' : text;
+    final lines = content.split('\n');
 
-    const List<String> fontPaths = [
-      '/system/fonts/NotoNaskhArabic-Regular.ttf',
-      '/system/fonts/NotoSans-Regular.ttf',
-      '/system/fonts/Roboto-Regular.ttf',
-      '/system/fonts/DroidSansFallback.ttf',
-    ];
-
-    sf.PdfFont? tryLoad(String path) {
-      try {
-        final fontBytes = File(path).readAsBytesSync();
-        return sf.PdfTrueTypeFont(fontBytes, 11, style: sf.PdfFontStyle.regular);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    sf.PdfFont? loaded;
-    for (final path in fontPaths) {
-      loaded = tryLoad(path);
-      if (loaded != null) break;
-    }
-    final sf.PdfFont font =
-        loaded ?? sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 11);
+    // Always get a valid non-null font
+    final ttFont = await _loadFont();
 
     final bool isRtl = RegExp(
       r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]',
-    ).hasMatch(text);
+    ).hasMatch(content);
 
-    final sf.PdfStringFormat format = sf.PdfStringFormat(
-      textDirection: isRtl
-          ? sf.PdfTextDirection.rightToLeft
-          : sf.PdfTextDirection.leftToRight,
-      lineAlignment: sf.PdfVerticalAlignment.middle,
-    );
+    final pdfDoc = pw.Document();
 
-    sf.PdfPage page = sfDoc.pages.add();
-    double y = 30;
-    const double lh = 18;
-    final double maxY = page.getClientSize().height - 30;
-    final double pageW = page.getClientSize().width - 60;
+    const linesPerPage = 50;
+    final totalPages = (lines.length / linesPerPage).ceil().clamp(1, 99999);
 
-    for (int i = 0; i < lines.length; i++) {
-      if (y + lh > maxY) {
-        page = sfDoc.pages.add();
-        y = 30;
-      }
-      final line = lines[i];
-      if (line.trim().isNotEmpty) {
-        page.graphics.drawString(
-          line,
-          font,
-          brush: brush,
-          bounds: Rect.fromLTWH(30, y, pageW, lh),
-          format: format,
-        );
-      }
-      y += lh;
-      if (lines.length > 1) onProgress(0.4 + 0.5 * (i / lines.length));
+    for (int start = 0; start < lines.length; start += linesPerPage) {
+      final chunk = lines.skip(start).take(linesPerPage).toList();
+      final pageIndex = start ~/ linesPerPage;
+
+      pdfDoc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.fromLTRB(40, 36, 40, 36),
+          build: (ctx) => pw.Column(
+            crossAxisAlignment: isRtl
+                ? pw.CrossAxisAlignment.end
+                : pw.CrossAxisAlignment.start,
+            children: chunk
+                .map((line) => pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(vertical: 1),
+                      child: pw.Text(
+                        line.isEmpty ? ' ' : line,
+                        // FIX: ttFont is always non-null now
+                        style: pw.TextStyle(font: ttFont, fontSize: 11),
+                        textDirection: isRtl
+                            ? pw.TextDirection.rtl
+                            : pw.TextDirection.ltr,
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+      );
+
+      onProgress(0.4 + 0.5 * (pageIndex + 1) / totalPages);
     }
 
-    final pdfBytes = await sfDoc.save();
-    sfDoc.dispose();
+    final pdfBytes = await pdfDoc.save();
     if (pdfBytes.isEmpty) throw Exception('PDF generation failed');
     await File(output).writeAsBytes(pdfBytes);
   }
@@ -862,67 +986,74 @@ class ConversionService {
     final body = (text.trim().isEmpty ? '(empty)' : text)
         .split('\n')
         .map(_xmlEscape)
-        .map((l) => '<w:p><w:r><w:t xml:space="preserve">$l</w:t></w:r></w:p>')
+        .map((l) =>
+            '<w:p><w:r><w:t xml:space="preserve">$l</w:t></w:r></w:p>')
         .join('\n');
 
-    final docXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-            xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>
-$body
-    <w:sectPr>
-      <w:pgSz w:w="11906" w:h="16838"/>
-      <w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>
-    </w:sectPr>
-  </w:body>
-</w:document>''';
+    final docXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"\n'
+        '            xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:body>\n'
+        '$body\n'
+        '    <w:sectPr>\n'
+        '      <w:pgSz w:w="11906" w:h="16838"/>\n'
+        '      <w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>\n'
+        '    </w:sectPr>\n'
+        '  </w:body>\n'
+        '</w:document>';
 
-    final stylesXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <w:docDefaults>
-    <w:rPrDefault>
-      <w:rPr>
-        <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>
-        <w:sz w:val="24"/>
-        <w:szCs w:val="24"/>
-      </w:rPr>
-    </w:rPrDefault>
-    <w:pPrDefault>
-      <w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr>
-    </w:pPrDefault>
-  </w:docDefaults>
-  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
-    <w:name w:val="Normal"/>
-    <w:qFormat/>
-  </w:style>
-</w:styles>''';
+    final stylesXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"\n'
+        '          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
+        '  <w:docDefaults>\n'
+        '    <w:rPrDefault>\n'
+        '      <w:rPr>\n'
+        '        <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>\n'
+        '        <w:sz w:val="24"/>\n'
+        '        <w:szCs w:val="24"/>\n'
+        '      </w:rPr>\n'
+        '    </w:rPrDefault>\n'
+        '    <w:pPrDefault>\n'
+        '      <w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr>\n'
+        '    </w:pPrDefault>\n'
+        '  </w:docDefaults>\n'
+        '  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">\n'
+        '    <w:name w:val="Normal"/>\n'
+        '    <w:qFormat/>\n'
+        '  </w:style>\n'
+        '</w:styles>';
 
-    final settingsXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:defaultTabStop w:val="720"/>
-  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>
-</w:settings>''';
+    final settingsXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:defaultTabStop w:val="720"/>\n'
+        '  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>\n'
+        '</w:settings>';
 
-    final ctXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
-</Types>''';
+    final ctXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        '  <Default Extension="xml" ContentType="application/xml"/>\n'
+        '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n'
+        '  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>\n'
+        '  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>\n'
+        '</Types>';
 
-    final relsXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>''';
+    final relsXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>\n'
+        '</Relationships>';
 
-    final wordRelsXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
-</Relationships>''';
+    final wordRelsXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n'
+        '  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>\n'
+        '</Relationships>';
 
     final zipBytes = _createZip({
       '[Content_Types].xml': utf8.encode(ctXml),
@@ -942,7 +1073,8 @@ $body
   Future<void> _writeXlsx(String text, String output) async {
     final ex = excel_pkg.Excel.createExcel();
     final sheet = ex['Sheet1'];
-    final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    final lines =
+        text.split('\n').where((l) => l.trim().isNotEmpty).toList();
     if (lines.isEmpty) {
       sheet.appendRow([excel_pkg.TextCellValue('(empty)')]);
     } else {
@@ -962,30 +1094,44 @@ $body
     String output,
     ProgressCallback onProgress,
   ) async {
-    final allLines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    final allLines =
+        text.split('\n').where((l) => l.trim().isNotEmpty).toList();
     const linesPerSlide = 15;
     final effective = allLines.isEmpty ? ['(empty)'] : allLines;
 
-    const aNs   = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-    const pNs   = 'http://schemas.openxmlformats.org/presentationml/2006/main';
-    const rNs   = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-    const pkgNs = 'http://schemas.openxmlformats.org/package/2006/relationships';
-    const ctNs  = 'http://schemas.openxmlformats.org/package/2006/content-types';
+    const aNs = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+    const pNs =
+        'http://schemas.openxmlformats.org/presentationml/2006/main';
+    const rNs =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const pkgNs =
+        'http://schemas.openxmlformats.org/package/2006/relationships';
+    const ctNs =
+        'http://schemas.openxmlformats.org/package/2006/content-types';
 
-    const officeDoc    = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
-    const slideRel     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide';
-    const masterRel    = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster';
-    const layoutRel    = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout';
-    const presPropsRel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps';
+    const officeDoc =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument';
+    const slideRel =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide';
+    const masterRel =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster';
+    const layoutRel =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout';
+    const presPropsRel =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps';
 
-    const slideCt    = 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml';
-    const masterCt   = 'application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml';
-    const layoutCt   = 'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml';
-    const presCt     = 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml';
-    const presProsCt = 'application/vnd.openxmlformats-officedocument.presentationml.presProps+xml';
+    const slideCt =
+        'application/vnd.openxmlformats-officedocument.presentationml.slide+xml';
+    const masterCt =
+        'application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml';
+    const layoutCt =
+        'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml';
+    const presCt =
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml';
+    const presProsCt =
+        'application/vnd.openxmlformats-officedocument.presentationml.presProps+xml';
 
-    final masterXml =
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    final masterXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<p:sldMaster xmlns:a="$aNs" xmlns:p="$pNs" xmlns:r="$rNs">'
         '<p:cSld>'
         '<p:bg><p:bgRef idx="1001"><a:schemeClr clr="bg1"/></p:bgRef></p:bg>'
@@ -1088,10 +1234,12 @@ $body
         n, (i) => '<p:sldId id="${256 + i}" r:id="rId${i + 1}"/>').join('');
     final presRelsList = List.generate(
         n,
-        (i) => '<Relationship Id="rId${i + 1}" Type="$slideRel" Target="slides/slide${i + 1}.xml"/>').join('');
+        (i) =>
+            '<Relationship Id="rId${i + 1}" Type="$slideRel" Target="slides/slide${i + 1}.xml"/>').join('');
     final slideOverrides = List.generate(
         n,
-        (i) => '<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="$slideCt"/>').join('');
+        (i) =>
+            '<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="$slideCt"/>').join('');
 
     final files = <String, List<int>>{
       '[Content_Types].xml': utf8.encode(
@@ -1137,14 +1285,17 @@ $body
         '</Relationships>',
       ),
       'ppt/slideMasters/slideMaster1.xml': utf8.encode(masterXml),
-      'ppt/slideMasters/_rels/slideMaster1.xml.rels': utf8.encode(masterRelsXml),
+      'ppt/slideMasters/_rels/slideMaster1.xml.rels':
+          utf8.encode(masterRelsXml),
       'ppt/slideLayouts/slideLayout1.xml': utf8.encode(layoutXml),
-      'ppt/slideLayouts/_rels/slideLayout1.xml.rels': utf8.encode(layoutRelsXml),
+      'ppt/slideLayouts/_rels/slideLayout1.xml.rels':
+          utf8.encode(layoutRelsXml),
     };
 
     for (int i = 0; i < slideXmls.length; i++) {
       files['ppt/slides/slide${i + 1}.xml'] = utf8.encode(slideXmls[i]);
-      files['ppt/slides/_rels/slide${i + 1}.xml.rels'] = utf8.encode(slideRelsXml(i));
+      files['ppt/slides/_rels/slide${i + 1}.xml.rels'] =
+          utf8.encode(slideRelsXml(i));
       onProgress(0.3 + 0.6 * (i + 1) / slideXmls.length);
     }
 

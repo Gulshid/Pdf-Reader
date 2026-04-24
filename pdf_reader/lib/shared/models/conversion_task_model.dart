@@ -70,11 +70,15 @@ enum SupportedFormat {
             SupportedFormat.pdf,
             SupportedFormat.csv,
             SupportedFormat.txt,
+            SupportedFormat.docx,  // was implemented but missing from UI targets
+            SupportedFormat.pptx,  // was implemented but missing from UI targets
           ],
         SupportedFormat.docx => [
             SupportedFormat.pdf,
             SupportedFormat.txt,
             SupportedFormat.xlsx,
+            SupportedFormat.csv,   // was implemented but missing from UI targets
+            SupportedFormat.pptx,  // was implemented but missing from UI targets
           ],
         SupportedFormat.pptx => [
             SupportedFormat.pdf,
