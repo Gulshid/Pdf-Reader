@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:convert';
 import 'dart:io';
@@ -21,7 +23,7 @@ import 'file_utils.dart';
 typedef ProgressCallback = void Function(double progress);
 
 class ConversionService {
-    ConversionService();
+  ConversionService();
 
   Future<String> convert({
     required ConversionTaskModel task,
@@ -130,58 +132,56 @@ class ConversionService {
     }
   }
 
-  
   Future<pw.Font> _loadFont() async {
-  // ── Tier 1: system fonts (fast path on most Android devices) ──────────
-  const List<String> systemPaths = [
-    '/system/fonts/Roboto-Regular.ttf',
-    '/system/fonts/NotoSans-Regular.ttf',
-    '/system/fonts/DroidSans.ttf',
-    '/system/fonts/DroidSansFallback.ttf',
-    '/system/fonts/NotoNaskhArabic-Regular.ttf',
-    '/system/fonts/NotoSansArabic-Regular.ttf',
-  ];
-  for (final path in systemPaths) {
-    try {
-      final f = File(path);
-      if (await f.exists()) {
-        final bytes = await f.readAsBytes();
-        if (bytes.isNotEmpty) {
-          print('✅ _loadFont: system → $path');
-          return pw.Font.ttf(bytes.buffer.asByteData());
+    // ── Tier 1: system fonts (fast path on most Android devices) ──────────
+    const List<String> systemPaths = [
+      '/system/fonts/Roboto-Regular.ttf',
+      '/system/fonts/NotoSans-Regular.ttf',
+      '/system/fonts/DroidSans.ttf',
+      '/system/fonts/DroidSansFallback.ttf',
+      '/system/fonts/NotoNaskhArabic-Regular.ttf',
+      '/system/fonts/NotoSansArabic-Regular.ttf',
+    ];
+    for (final path in systemPaths) {
+      try {
+        final f = File(path);
+        if (await f.exists()) {
+          final bytes = await f.readAsBytes();
+          if (bytes.isNotEmpty) {
+            print('✅ _loadFont: system → $path');
+            return pw.Font.ttf(bytes.buffer.asByteData());
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
+
+    // ── Tier 2: bundled asset ──────────────────────────────────────────────
+    try {
+      final data = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+      print('✅ _loadFont: asset bundle');
+      return pw.Font.ttf(data);
+    } catch (e) {
+      print('❌ _loadFont: asset failed → $e');
+    }
+
+    // ── Tier 3: copy asset to temp file and load from disk ─────────────────
+    try {
+      final data = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+      final tempDir = await getTemporaryDirectory();
+      final tempFont = File(p.join(tempDir.path, 'NotoSans-Regular.ttf'));
+      await tempFont.writeAsBytes(data.buffer.asUint8List());
+      final bytes = await tempFont.readAsBytes();
+      print('✅ _loadFont: asset→tempfile');
+      return pw.Font.ttf(bytes.buffer.asByteData());
+    } catch (e) {
+      print('❌ _loadFont: tempfile fallback failed → $e');
+    }
+
+    // ── Tier 4: absolute last resort ──────────────────────────────────────
+    print('⚠️ _loadFont: all tiers failed, using courier');
+    return pw.Font.courier();
   }
 
-  // ── Tier 2: bundled asset ──────────────────────────────────────────────
-  try {
-    final data = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
-    print('✅ _loadFont: asset bundle');
-    return pw.Font.ttf(data);
-  } catch (e) {
-    print('❌ _loadFont: asset failed → $e');
-  }
-
-  // ── Tier 3: copy asset to temp file and load from disk ─────────────────
-  // Workaround for devices where rootBundle.load works but pw.Font.ttf
-  // rejects the ByteData from the asset bundle directly.
-  try {
-    final data = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
-    final tempDir = await getTemporaryDirectory();
-    final tempFont = File(p.join(tempDir.path, 'NotoSans-Regular.ttf'));
-    await tempFont.writeAsBytes(data.buffer.asUint8List());
-    final bytes = await tempFont.readAsBytes();
-    print('✅ _loadFont: asset→tempfile');
-    return pw.Font.ttf(bytes.buffer.asByteData());
-  } catch (e) {
-    print('❌ _loadFont: tempfile fallback failed → $e');
-  }
-
-  // ── Tier 4: absolute last resort ──────────────────────────────────────
-  print('⚠️ _loadFont: all tiers failed, using courier');
-  return pw.Font.courier();
-}
   // ── PDF → * ───────────────────────────────────────────────────────────────
 
   Future<String> _fromPdf(
@@ -198,11 +198,6 @@ class ConversionService {
 
       case SupportedFormat.jpg:
       case SupportedFormat.png:
-        // FIX (blur/cross bug root cause #2):
-        // pdfx renders pages to raw RGBA pixel data when format is jpeg/png —
-        // the `.bytes` field is the *encoded* image bytes (JPEG or PNG),
-        // which IS correct for pdfx >= 2.x. However the resolution was too
-        // low (1x scale) causing blur. Bumped to 3x and added a quality guard.
         final imgFmt = target == SupportedFormat.jpg
             ? pdfx.PdfPageImageFormat.jpeg
             : pdfx.PdfPageImageFormat.png;
@@ -214,7 +209,7 @@ class ConversionService {
           if (totalPages == 1) {
             final page = await pdfDoc.getPage(1);
             final pageImage = await page.render(
-              width: page.width * 3,   // FIX: was 2x → now 3x for sharpness
+              width: page.width * 3,
               height: page.height * 3,
               format: imgFmt,
               backgroundColor: '#FFFFFF',
@@ -222,21 +217,19 @@ class ConversionService {
             await page.close();
             onProgress(0.9);
             if (pageImage == null) throw Exception('Failed to render PDF page.');
-            // FIX: validate bytes are non-empty before writing
             if (pageImage.bytes.isEmpty) {
               throw Exception('Rendered page produced empty bytes.');
             }
             await File(output).writeAsBytes(pageImage.bytes);
             return output;
           } else {
-            // Multi-page → ZIP of images
             final zipOutput = output.replaceAll(
                 RegExp(r'\.(jpg|jpeg|png)$', caseSensitive: false), '.zip');
             final archive = Archive();
             for (int pg = 1; pg <= totalPages; pg++) {
               final page = await pdfDoc.getPage(pg);
               final pageImage = await page.render(
-                width: page.width * 3,   // FIX: was 2x → 3x
+                width: page.width * 3,
                 height: page.height * 3,
                 format: imgFmt,
                 backgroundColor: '#FFFFFF',
@@ -423,21 +416,10 @@ class ConversionService {
 
     switch (target) {
       case SupportedFormat.pdf:
-        // FIX (blur/cross bug root cause #3):
-        // The old code passed raw file bytes directly to pw.MemoryImage().
-        // pw.MemoryImage accepts JPEG or PNG bytes, but if the format is
-        // ambiguous or the `image` package decodes it differently, the pw
-        // renderer shows a grey cross placeholder instead of the image.
-        //
-        // Fix: Always decode with the `image` package first, then re-encode
-        // as PNG (lossless, always valid for pw), then wrap in pw.MemoryImage.
-        // This guarantees pw always receives valid PNG bytes it can render.
         final decoded = img.decodeImage(bytes);
         if (decoded == null) throw Exception('Cannot decode image: $src');
         final pngBytes = Uint8List.fromList(img.encodePng(decoded));
 
-        // FIX: Use proper A4 margins (not zero) so the image isn't clipped,
-        // and use pw.BoxFit.contain so it fits within the page correctly.
         final pdfDoc = pw.Document();
         pdfDoc.addPage(pw.Page(
           pageFormat: PdfPageFormat.a4,
@@ -460,7 +442,6 @@ class ConversionService {
             src.toLowerCase().endsWith('.jpeg')) {
           await File(output).writeAsBytes(bytes);
         } else {
-          // FIX: decode then re-encode to ensure valid JPEG output
           final d = img.decodeImage(bytes);
           if (d == null) throw Exception('Cannot decode image');
           await File(output).writeAsBytes(
@@ -651,37 +632,37 @@ class ConversionService {
         final totalRows = data.length;
         int startRow = 0;
 
-        // REPLACE this block inside _fromXlsx → case SupportedFormat.pdf:
-            while (startRow < totalRows) {
-              final endRow = (startRow + rowsPerPage < totalRows)
-                  ? startRow + rowsPerPage
-                  : totalRows;
-              final pageData = data.sublist(startRow, endRow);
-              final capturedStart = startRow;          // ← ADD THIS
-              pdfDoc.addPage(pw.Page(
-                pageFormat: PdfPageFormat.a4,
-                margin: const pw.EdgeInsets.all(24),
-                build: (ctx) => pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'Page ${(capturedStart ~/ rowsPerPage) + 1} of ${(totalRows / rowsPerPage).ceil()}',  // ← USE capturedStart
-                      style: const pw.TextStyle(fontSize: 8),
-                    ),
-                    pw.SizedBox(height: 8),
-                    pw.TableHelper.fromTextArray(
-                      data: pageData,
-                      border: pw.TableBorder.all(width: 0.5),
-                      cellStyle: const pw.TextStyle(fontSize: 8),
-                      headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                      cellPadding: const pw.EdgeInsets.all(4),
-                      columnWidths: {0: const pw.FlexColumnWidth()},
-                    ),
-                  ],
+        while (startRow < totalRows) {
+          final endRow = (startRow + rowsPerPage < totalRows)
+              ? startRow + rowsPerPage
+              : totalRows;
+          final pageData = data.sublist(startRow, endRow);
+          final capturedStart = startRow;
+          pdfDoc.addPage(pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(24),
+            build: (ctx) => pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'Page ${(capturedStart ~/ rowsPerPage) + 1} of ${(totalRows / rowsPerPage).ceil()}',
+                  style: const pw.TextStyle(fontSize: 8),
                 ),
-              ));
-              startRow = endRow;
-            }
+                pw.SizedBox(height: 8),
+                pw.TableHelper.fromTextArray(
+                  data: pageData,
+                  border: pw.TableBorder.all(width: 0.5),
+                  cellStyle: const pw.TextStyle(fontSize: 8),
+                  headerStyle: pw.TextStyle(
+                      fontSize: 8, fontWeight: pw.FontWeight.bold),
+                  cellPadding: const pw.EdgeInsets.all(4),
+                  columnWidths: {0: const pw.FlexColumnWidth()},
+                ),
+              ],
+            ),
+          ));
+          startRow = endRow;
+        }
         onProgress(0.8);
         final pdfBytes = await pdfDoc.save();
         print('   📄 PDF generated: ${pdfBytes.length} bytes');
@@ -743,12 +724,40 @@ class ConversionService {
     for (final m
         in RegExp(r'<w:p[ >].*?</w:p>', dotAll: true).allMatches(xml)) {
       final paraXml = m.group(0)!;
+
+      final styleMatch = RegExp(r'<w:pStyle[^>]+w:val="([^"]+)"')
+          .firstMatch(paraXml);
+      final styleVal = styleMatch?.group(1)?.toLowerCase() ?? '';
+
+      final runXmls = RegExp(r'<w:r[ >].*?</w:r>', dotAll: true)
+          .allMatches(paraXml)
+          .map((r) => r.group(0)!)
+          .toList();
+      final hasBold = runXmls.isNotEmpty &&
+          runXmls.every((r) => r.contains('<w:b/>') || r.contains('<w:b '));
+
       final texts = RegExp(r'<w:t[^>]*>([^<]*)</w:t>')
           .allMatches(paraXml)
           .map((t) => t.group(1) ?? '')
           .join('');
+
       if (texts.trim().isNotEmpty) {
-        buf.writeln(texts);
+        if (styleVal.contains('heading 1') ||
+            styleVal.contains('heading1') ||
+            styleVal == 'title') {
+          buf.writeln('# ${texts.trim()}');
+        } else if (styleVal.contains('heading 2') ||
+            styleVal.contains('heading2') ||
+            styleVal == 'subtitle') {
+          buf.writeln('## ${texts.trim()}');
+        } else if (styleVal.contains('heading 3') ||
+            styleVal.contains('heading3')) {
+          buf.writeln('### ${texts.trim()}');
+        } else if (hasBold && texts.trim().length <= 80) {
+          buf.writeln('## ${texts.trim()}');
+        } else {
+          buf.writeln(texts);
+        }
         lastWasParagraph = false;
       } else if (!lastWasParagraph) {
         buf.writeln();
@@ -787,181 +796,310 @@ class ConversionService {
   // ── PPTX → * ──────────────────────────────────────────────────────────────
 
   Future<void> _fromPptx(
-  String src,
-  SupportedFormat target,
-  String output,
-  ProgressCallback onProgress,
-) async {
-  final bytes = await File(src).readAsBytes();
-  onProgress(0.2);
-  Archive archive;
-  try {
-    archive = ZipDecoder().decodeBytes(bytes);
-  } catch (e) {
-    throw Exception('Cannot read PPTX: $e');
+    String src,
+    SupportedFormat target,
+    String output,
+    ProgressCallback onProgress,
+  ) async {
+    final bytes = await File(src).readAsBytes();
+    onProgress(0.2);
+    Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(bytes);
+    } catch (e) {
+      throw Exception('Cannot read PPTX: $e');
+    }
+
+    final slideFiles = archive.files
+        .where((f) =>
+            f.name.startsWith('ppt/slides/slide') &&
+            f.name.endsWith('.xml') &&
+            !f.name.contains('_rels'))
+        .toList()
+      ..sort((a, b) {
+        final numA = int.tryParse(
+                RegExp(r'slide(\d+)\.xml').firstMatch(a.name)?.group(1) ?? '0') ??
+            0;
+        final numB = int.tryParse(
+                RegExp(r'slide(\d+)\.xml').firstMatch(b.name)?.group(1) ?? '0') ??
+            0;
+        return numA.compareTo(numB);
+      });
+
+    final slideTexts = <List<String>>[];
+    for (final slide in slideFiles) {
+      final xml = utf8.decode(slide.content, allowMalformed: true);
+      final lines = RegExp(r'<a:t[^>]*>(.*?)<\/a:t>', dotAll: true)
+          .allMatches(xml)
+          .map((m) => m.group(1)?.trim() ?? '')
+          .where((t) => t.isNotEmpty)
+          .toList();
+      slideTexts.add(lines.isEmpty ? ['(no text)'] : lines);
+    }
+
+    onProgress(0.4);
+
+    switch (target) {
+      case SupportedFormat.pdf:
+        await _pptxToPdf(slideTexts, output, onProgress);
+        break;
+      case SupportedFormat.txt:
+        final buf = StringBuffer();
+        for (int i = 0; i < slideTexts.length; i++) {
+          buf.writeln('--- Slide ${i + 1} ---');
+          for (final l in slideTexts[i]) {
+            buf.writeln(l);
+          }
+          buf.writeln();
+        }
+        await File(output).writeAsString(buf.toString(), encoding: utf8);
+        break;
+      case SupportedFormat.docx:
+        final buf = StringBuffer();
+        for (int i = 0; i < slideTexts.length; i++) {
+          buf.writeln('--- Slide ${i + 1} ---');
+          for (final l in slideTexts[i]) {
+            buf.writeln(l);
+          }
+          buf.writeln();
+        }
+        await _writeDocx(buf.toString(), output, onProgress);
+        break;
+      case SupportedFormat.xlsx:
+        final buf = StringBuffer();
+        for (int i = 0; i < slideTexts.length; i++) {
+          buf.writeln('--- Slide ${i + 1} ---');
+          for (final l in slideTexts[i]) {
+            buf.writeln(l);
+          }
+          buf.writeln();
+        }
+        await _writeXlsx(buf.toString(), output);
+        break;
+      case SupportedFormat.csv:
+        final buf = StringBuffer();
+        for (int i = 0; i < slideTexts.length; i++) {
+          for (final l in slideTexts[i]) {
+            buf.writeln('${_escapeCsv('Slide ${i + 1}')},${_escapeCsv(l)}');
+          }
+        }
+        await File(output).writeAsString(buf.toString(), encoding: utf8);
+        break;
+      default:
+        throw UnsupportedError('PPTX -> ${target.label} not supported');
+    }
+    // ← _fromPptx ends here (was missing in original, causing all methods below
+    //   to be accidentally nested inside _fromPptx)
   }
 
-  final slideFiles = archive.files
-      .where((f) =>
-          f.name.startsWith('ppt/slides/slide') &&
-          f.name.endsWith('.xml') &&
-          !f.name.contains('_rels'))
-      .toList()
-    ..sort((a, b) {
-      // sort by slide number numerically: slide1, slide2 ... slide10, slide11
-      final numA = int.tryParse(
-              RegExp(r'slide(\d+)\.xml').firstMatch(a.name)?.group(1) ?? '0') ??
-          0;
-      final numB = int.tryParse(
-              RegExp(r'slide(\d+)\.xml').firstMatch(b.name)?.group(1) ?? '0') ??
-          0;
-      return numA.compareTo(numB);
-    });
+  // ── PPTX → PDF ────────────────────────────────────────────────────────────
 
-  // Extract text per slide — preserve slide boundaries
-  final slideTexts = <List<String>>[];
-  for (final slide in slideFiles) {
-    final xml = utf8.decode(slide.content, allowMalformed: true);
-    final lines = RegExp(r'<a:t[^>]*>(.*?)<\/a:t>', dotAll: true)
-        .allMatches(xml)
-        .map((m) => m.group(1)?.trim() ?? '')
-        .where((t) => t.isNotEmpty)
-        .toList();
-    slideTexts.add(lines.isEmpty ? ['(no text)'] : lines);
-  }
+  Future<void> _pptxToPdf(
+    List<List<String>> slideTexts,
+    String output,
+    ProgressCallback onProgress,
+  ) async {
+    final ttFont = await _loadFont();
+    final pdfDoc = pw.Document();
+    final total = slideTexts.length;
 
-  onProgress(0.4);
+    const PdfColor accentColor = PdfColor.fromInt(0xFF1A3A5C);
+    const PdfColor h2Color = PdfColor.fromInt(0xFF2E6DA4);
+    const PdfColor bulletColor = PdfColor.fromInt(0xFF2E6DA4);
+    const PdfColor bodyColor = PdfColor.fromInt(0xFF1A1A1A);
+    const PdfColor ruleColor = PdfColor.fromInt(0xFFCCD6E0);
 
-  switch (target) {
-    case SupportedFormat.pdf:
-      // ONE PDF page per slide — preserves slide structure
-      await _pptxToPdf(slideTexts, output, onProgress);
-      break;
-    case SupportedFormat.txt:
-      final buf = StringBuffer();
-      for (int i = 0; i < slideTexts.length; i++) {
-        buf.writeln('--- Slide ${i + 1} ---');
-        for (final l in slideTexts[i]) buf.writeln(l);
-        buf.writeln();
-      }
-      await File(output).writeAsString(buf.toString(), encoding: utf8);
-      break;
-    case SupportedFormat.docx:
-      final buf = StringBuffer();
-      for (int i = 0; i < slideTexts.length; i++) {
-        buf.writeln('--- Slide ${i + 1} ---');
-        for (final l in slideTexts[i]) buf.writeln(l);
-        buf.writeln();
-      }
-      await _writeDocx(buf.toString(), output, onProgress);
-      break;
-    case SupportedFormat.xlsx:
-      final buf = StringBuffer();
-      for (int i = 0; i < slideTexts.length; i++) {
-        buf.writeln('--- Slide ${i + 1} ---');
-        for (final l in slideTexts[i]) buf.writeln(l);
-        buf.writeln();
-      }
-      await _writeXlsx(buf.toString(), output);
-      break;
-    case SupportedFormat.csv:
-      final buf = StringBuffer();
-      for (int i = 0; i < slideTexts.length; i++) {
-        for (final l in slideTexts[i]) {
-          buf.writeln(_escapeCsv('Slide ${i + 1}') + ',' + _escapeCsv(l));
+    for (int i = 0; i < total; i++) {
+      final lines = slideTexts[i];
+      final slideNumber = i + 1;
+
+      final allText = lines.join(' ');
+      final isRtl = RegExp(
+        r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]',
+      ).hasMatch(allText);
+      final td = isRtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
+      final ca =
+          isRtl ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start;
+
+      String titleText = 'Slide $slideNumber / $total';
+      List<String> bodyLines = lines;
+      if (lines.isNotEmpty) {
+        final fk = _classifyLine(lines.first);
+        if (fk == 'h1' || fk == 'h2') {
+          titleText = lines.first.trim().replaceAll(RegExp(r'^#+\s*'), '');
+          bodyLines = lines.skip(1).toList();
         }
       }
-      await File(output).writeAsString(buf.toString(), encoding: utf8);
-      break;
-    default:
-      throw UnsupportedError('PPTX -> ${target.label} not supported');
-  }
-}
 
-Future<void> _pptxToPdf(
-  List<List<String>> slideTexts,
-  String output,
-  ProgressCallback onProgress,
-) async {
-  final ttFont = await _loadFont();
-  final pdfDoc = pw.Document();
-  final total = slideTexts.length;
-
-  for (int i = 0; i < total; i++) {
-    final lines = slideTexts[i];
-    final slideNumber = i + 1;
-
-    // Detect RTL content on this slide
-    final allText = lines.join(' ');
-    final isRtl = RegExp(
-      r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]',
-    ).hasMatch(allText);
-
-    pdfDoc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(40, 36, 40, 36),
-        build: (ctx) => pw.Column(
-          crossAxisAlignment: isRtl
-              ? pw.CrossAxisAlignment.end
-              : pw.CrossAxisAlignment.start,
-          children: [
-            // Slide number header
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.symmetric(
-                  vertical: 6, horizontal: 10),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.blueGrey800,
-                borderRadius: pw.BorderRadius.circular(4),
-              ),
-              child: pw.Text(
-                'Slide $slideNumber / $total',
+      final widgets = <pw.Widget>[];
+      for (final raw in bodyLines) {
+        final kind = _classifyLine(raw);
+        final t = raw.trim();
+        switch (kind) {
+          case 'h2':
+            final label = t.replaceAll(RegExp(r'^#+\s*'), '');
+            widgets.add(pw.SizedBox(height: 6));
+            widgets.add(pw.Text(label.isEmpty ? ' ' : label,
                 style: pw.TextStyle(
-                  font: ttFont,
-                  fontSize: 10,
-                  color: PdfColors.white,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ),
-            pw.SizedBox(height: 16),
-
-            // Slide content
-            ...lines.map(
-              (line) => pw.Padding(
+                    font: ttFont,
+                    fontSize: 12,
+                    color: h2Color,
+                    fontWeight: pw.FontWeight.bold),
+                textDirection: td));
+            widgets.add(pw.Container(
+                margin: const pw.EdgeInsets.only(top: 2, bottom: 4),
+                height: 1.2,
+                color: ruleColor));
+            break;
+          case 'bullet':
+            final label = t.replaceFirst(RegExp(r'^[-•*]\s+'), '');
+            widgets.add(pw.Padding(
+                padding:
+                    const pw.EdgeInsets.only(left: 10, top: 2, bottom: 2),
+                child: pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Container(
+                          width: 5,
+                          height: 5,
+                          margin:
+                              const pw.EdgeInsets.only(top: 4, right: 8),
+                          decoration: const pw.BoxDecoration(
+                              color: bulletColor,
+                              shape: pw.BoxShape.circle)),
+                      pw.Expanded(
+                          child: pw.Text(label,
+                              style: pw.TextStyle(
+                                  font: ttFont,
+                                  fontSize: 11,
+                                  color: bodyColor),
+                              textDirection: td)),
+                    ])));
+            break;
+          case 'numbered':
+            final m = RegExp(r'^(\d+[.)]\s*)(.*)').firstMatch(t);
+            final num = m?.group(1) ?? '';
+            final label = m?.group(2) ?? t;
+            widgets.add(pw.Padding(
+                padding:
+                    const pw.EdgeInsets.only(left: 10, top: 2, bottom: 2),
+                child: pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(num,
+                          style: pw.TextStyle(
+                              font: ttFont,
+                              fontSize: 11,
+                              color: bulletColor,
+                              fontWeight: pw.FontWeight.bold),
+                          textDirection: td),
+                      pw.SizedBox(width: 4),
+                      pw.Expanded(
+                          child: pw.Text(label,
+                              style: pw.TextStyle(
+                                  font: ttFont,
+                                  fontSize: 11,
+                                  color: bodyColor),
+                              textDirection: td)),
+                    ])));
+            break;
+          case 'blank':
+            widgets.add(pw.SizedBox(height: 6));
+            break;
+          default:
+            widgets.add(pw.Padding(
                 padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Text(t.isEmpty ? ' ' : t,
+                    style: pw.TextStyle(
+                        font: ttFont, fontSize: 11, color: bodyColor),
+                    textDirection: td)));
+        }
+      }
+
+      pdfDoc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(0),
+          build: (ctx) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(
+                    vertical: 14, horizontal: 36),
+                color: accentColor,
                 child: pw.Text(
-                  line,
-                  style: pw.TextStyle(font: ttFont, fontSize: 11),
-                  textDirection:
-                      isRtl ? pw.TextDirection.rtl : pw.TextDirection.ltr,
+                  titleText,
+                  style: pw.TextStyle(
+                      font: ttFont,
+                      fontSize: 16,
+                      color: PdfColors.white,
+                      fontWeight: pw.FontWeight.bold),
+                  textDirection: td,
                 ),
               ),
-            ),
-          ],
+              pw.Expanded(
+                child: pw.Padding(
+                  padding: const pw.EdgeInsets.fromLTRB(36, 20, 36, 24),
+                  child: pw.Column(
+                    crossAxisAlignment: ca,
+                    children: widgets,
+                  ),
+                ),
+              ),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 36, vertical: 8),
+                color: ruleColor,
+                child: pw.Text(
+                  '$slideNumber / $total',
+                  style: pw.TextStyle(
+                      font: ttFont,
+                      fontSize: 9,
+                      color: const PdfColor.fromInt(0xFF666666)),
+                  textAlign: pw.TextAlign.right,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
 
-    onProgress(0.4 + 0.55 * (i + 1) / total);
+      onProgress(0.4 + 0.55 * (i + 1) / total);
+    }
+
+    final pdfBytes = await pdfDoc.save();
+    if (pdfBytes.isEmpty) throw Exception('PPTX→PDF generation failed');
+    await File(output).writeAsBytes(pdfBytes);
   }
 
-  final pdfBytes = await pdfDoc.save();
-  if (pdfBytes.isEmpty) throw Exception('PPTX→PDF generation failed');
-  await File(output).writeAsBytes(pdfBytes);
-}
+  // ── Line classifier ───────────────────────────────────────────────────────
+
+  // Returns: 'h1', 'h2', 'bullet', 'numbered', 'blank', 'body'
+  String _classifyLine(String line) {
+    if (line.trim().isEmpty) return 'blank';
+    final t = line.trim();
+    if (t.startsWith('### ')) return 'h2';
+    if (t.startsWith('## ')) return 'h1';
+    if (t.startsWith('# ')) return 'h1';
+    if (t.length <= 60 &&
+        t == t.toUpperCase() &&
+        RegExp(r'[A-Z]').hasMatch(t)) return 'h1';
+    if (t.endsWith(':') &&
+        t.length <= 60 &&
+        !t.startsWith('-') &&
+        !t.startsWith('•')) return 'h2';
+    if (RegExp(r'^-{3,}\s*Slide\s+\d+\s*-{3,}$').hasMatch(t)) return 'h1';
+    if (RegExp(r'^[-=]{3,}$').hasMatch(t)) return 'blank';
+    if (t.startsWith('- ') || t.startsWith('• ') || t.startsWith('* '))
+      return 'bullet';
+    if (RegExp(r'^\d+[.)]\s').hasMatch(t)) return 'numbered';
+    return 'body';
+  }
 
   // ── Text → PDF ────────────────────────────────────────────────────────────
-  //
-  // FIX (blur/cross bug root cause #4):
-  // The old implementation called `_loadFont()` inline and left ttFont null
-  // on failure. A null font passed to pw.TextStyle causes the pw renderer to
-  // fall back to a built-in Helvetica stub that only covers ASCII — on some
-  // Android PDF viewers this renders as a grey cross or empty page.
-  //
-  // Fix: Use the new `_loadFont()` helper which guarantees a non-null font,
-  // and always set `textDirection` correctly based on content detection.
+
   Future<void> _textToPdf(
     String text,
     String output,
@@ -970,43 +1108,174 @@ Future<void> _pptxToPdf(
     final content = text.trim().isEmpty ? '(empty)' : text;
     final lines = content.split('\n');
 
-    // Always get a valid non-null font
     final ttFont = await _loadFont();
 
     final bool isRtl = RegExp(
       r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]',
     ).hasMatch(content);
 
-    final pdfDoc = pw.Document();
+    const PdfColor accentColor = PdfColor.fromInt(0xFF1A3A5C);
+    const PdfColor h2Color = PdfColor.fromInt(0xFF2E6DA4);
+    const PdfColor bulletColor = PdfColor.fromInt(0xFF2E6DA4);
+    const PdfColor bodyColor = PdfColor.fromInt(0xFF1A1A1A);
+    const PdfColor ruleColor = PdfColor.fromInt(0xFFCCD6E0);
 
-    const linesPerPage = 50;
-    final totalPages = (lines.length / linesPerPage).ceil().clamp(1, 99999);
+    final td = isRtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
+    final ca =
+        isRtl ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start;
+
+    List<pw.Widget> buildWidgets(List<String> chunk) {
+      final widgets = <pw.Widget>[];
+      for (final raw in chunk) {
+        final kind = _classifyLine(raw);
+        final t = raw.trim();
+        switch (kind) {
+          case 'h1':
+            final label = t
+                .replaceAll(RegExp(r'^#+\s*'), '')
+                .replaceAll(RegExp(r'^-{3,}\s*'), '')
+                .replaceAll(RegExp(r'\s*-{3,}$'), '');
+            widgets.add(pw.SizedBox(height: 10));
+            widgets.add(
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(
+                    vertical: 6, horizontal: 10),
+                decoration: const pw.BoxDecoration(
+                  color: accentColor,
+                  borderRadius:
+                      pw.BorderRadius.all(pw.Radius.circular(4)),
+                ),
+                child: pw.Text(
+                  label.isEmpty ? ' ' : label,
+                  style: pw.TextStyle(
+                    font: ttFont,
+                    fontSize: 14,
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                  textDirection: td,
+                ),
+              ),
+            );
+            widgets.add(pw.SizedBox(height: 6));
+            break;
+
+          case 'h2':
+            final label = t.replaceAll(RegExp(r'^#+\s*'), '');
+            widgets.add(pw.SizedBox(height: 8));
+            widgets.add(pw.Text(
+              label.isEmpty ? ' ' : label,
+              style: pw.TextStyle(
+                font: ttFont,
+                fontSize: 12,
+                color: h2Color,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              textDirection: td,
+            ));
+            widgets.add(pw.Container(
+              margin: const pw.EdgeInsets.only(top: 2, bottom: 4),
+              height: 1.2,
+              color: ruleColor,
+            ));
+            break;
+
+          case 'bullet':
+            final label = t.replaceFirst(RegExp(r'^[-•*]\s+'), '');
+            widgets.add(pw.Padding(
+              padding:
+                  const pw.EdgeInsets.only(left: 12, top: 2, bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Container(
+                    width: 5,
+                    height: 5,
+                    margin: const pw.EdgeInsets.only(top: 4, right: 8),
+                    decoration: const pw.BoxDecoration(
+                      color: bulletColor,
+                      shape: pw.BoxShape.circle,
+                    ),
+                  ),
+                  pw.Expanded(
+                      child: pw.Text(
+                    label,
+                    style: pw.TextStyle(
+                        font: ttFont, fontSize: 11, color: bodyColor),
+                    textDirection: td,
+                  )),
+                ],
+              ),
+            ));
+            break;
+
+          case 'numbered':
+            final m = RegExp(r'^(\d+[.)]\s*)(.*)').firstMatch(t);
+            final num = m?.group(1) ?? '';
+            final label = m?.group(2) ?? t;
+            widgets.add(pw.Padding(
+              padding:
+                  const pw.EdgeInsets.only(left: 12, top: 2, bottom: 2),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(num,
+                      style: pw.TextStyle(
+                          font: ttFont,
+                          fontSize: 11,
+                          color: bulletColor,
+                          fontWeight: pw.FontWeight.bold),
+                      textDirection: td),
+                  pw.SizedBox(width: 4),
+                  pw.Expanded(
+                      child: pw.Text(
+                    label,
+                    style: pw.TextStyle(
+                        font: ttFont, fontSize: 11, color: bodyColor),
+                    textDirection: td,
+                  )),
+                ],
+              ),
+            ));
+            break;
+
+          case 'blank':
+            widgets.add(pw.SizedBox(height: 6));
+            break;
+
+          default:
+            widgets.add(pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Text(
+                t.isEmpty ? ' ' : t,
+                style: pw.TextStyle(
+                    font: ttFont, fontSize: 11, color: bodyColor),
+                textDirection: td,
+              ),
+            ));
+        }
+      }
+      return widgets;
+    }
+
+    final pdfDoc = pw.Document();
+    const linesPerPage = 45;
+    final totalPages =
+        (lines.length / linesPerPage).ceil().clamp(1, 99999);
 
     for (int start = 0; start < lines.length; start += linesPerPage) {
       final chunk = lines.skip(start).take(linesPerPage).toList();
       final pageIndex = start ~/ linesPerPage;
+      final pageWidgets = buildWidgets(chunk);
 
       pdfDoc.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.fromLTRB(40, 36, 40, 36),
+          margin: const pw.EdgeInsets.fromLTRB(48, 40, 48, 40),
           build: (ctx) => pw.Column(
-            crossAxisAlignment: isRtl
-                ? pw.CrossAxisAlignment.end
-                : pw.CrossAxisAlignment.start,
-            children: chunk
-                .map((line) => pw.Padding(
-                      padding: const pw.EdgeInsets.symmetric(vertical: 1),
-                      child: pw.Text(
-                        line.isEmpty ? ' ' : line,
-                        // FIX: ttFont is always non-null now
-                        style: pw.TextStyle(font: ttFont, fontSize: 11),
-                        textDirection: isRtl
-                            ? pw.TextDirection.rtl
-                            : pw.TextDirection.ltr,
-                      ),
-                    ))
-                .toList(),
+            crossAxisAlignment: ca,
+            children: pageWidgets,
           ),
         ),
       );
@@ -1021,17 +1290,75 @@ Future<void> _pptxToPdf(
 
   // ── Write DOCX ────────────────────────────────────────────────────────────
 
+  String _docxPara(String kind, String rawText) {
+    final t = rawText.trim();
+    switch (kind) {
+      case 'h1':
+        final label = _xmlEscape(t
+            .replaceAll(RegExp(r'^#+\s*'), '')
+            .replaceAll(RegExp(r'^-{3,}\s*'), '')
+            .replaceAll(RegExp(r'\s*-{3,}$'), ''));
+        return '<w:p>'
+            '<w:pPr><w:pStyle w:val="Heading1"/>'
+            '<w:spacing w:before="240" w:after="120"/>'
+            '</w:pPr>'
+            '<w:r><w:t xml:space="preserve">${label.isEmpty ? " " : label}</w:t></w:r>'
+            '</w:p>';
+
+      case 'h2':
+        final label = _xmlEscape(t.replaceAll(RegExp(r'^#+\s*'), ''));
+        return '<w:p>'
+            '<w:pPr><w:pStyle w:val="Heading2"/>'
+            '<w:spacing w:before="180" w:after="80"/>'
+            '</w:pPr>'
+            '<w:r><w:t xml:space="preserve">${label.isEmpty ? " " : label}</w:t></w:r>'
+            '</w:p>';
+
+      case 'bullet':
+        final label = _xmlEscape(t.replaceFirst(RegExp(r'^[-•*]\s+'), ''));
+        return '<w:p>'
+            '<w:pPr>'
+            '<w:pStyle w:val="ListParagraph"/>'
+            '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>'
+            '<w:spacing w:before="40" w:after="40"/>'
+            '</w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>'
+            '<w:t xml:space="preserve">$label</w:t></w:r>'
+            '</w:p>';
+
+      case 'numbered':
+        final m = RegExp(r'^(\d+[.)]\s*)(.*)').firstMatch(t);
+        final label = _xmlEscape((m?.group(2) ?? t).trim());
+        return '<w:p>'
+            '<w:pPr>'
+            '<w:pStyle w:val="ListParagraph"/>'
+            '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>'
+            '<w:spacing w:before="40" w:after="40"/>'
+            '</w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>'
+            '<w:t xml:space="preserve">$label</w:t></w:r>'
+            '</w:p>';
+
+      case 'blank':
+        return '<w:p><w:pPr><w:spacing w:after="80"/></w:pPr></w:p>';
+
+      default:
+        final label = _xmlEscape(t.isEmpty ? ' ' : t);
+        return '<w:p>'
+            '<w:pPr><w:spacing w:before="0" w:after="120" w:line="276" w:lineRule="auto"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>'
+            '<w:t xml:space="preserve">$label</w:t></w:r>'
+            '</w:p>';
+    }
+  }
+
   Future<void> _writeDocx(
     String text,
     String output,
     ProgressCallback onProgress,
   ) async {
-    final body = (text.trim().isEmpty ? '(empty)' : text)
-        .split('\n')
-        .map(_xmlEscape)
-        .map((l) =>
-            '<w:p><w:r><w:t xml:space="preserve">$l</w:t></w:r></w:p>')
-        .join('\n');
+    final lines = (text.trim().isEmpty ? '(empty)' : text).split('\n');
+    final body = lines.map((l) => _docxPara(_classifyLine(l), l)).join('\n');
 
     final docXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
@@ -1041,7 +1368,7 @@ Future<void> _pptxToPdf(
         '$body\n'
         '    <w:sectPr>\n'
         '      <w:pgSz w:w="11906" w:h="16838"/>\n'
-        '      <w:pgMar w:top="1134" w:right="850" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>\n'
+        '      <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/>\n'
         '    </w:sectPr>\n'
         '  </w:body>\n'
         '</w:document>';
@@ -1051,20 +1378,44 @@ Future<void> _pptxToPdf(
         '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"\n'
         '          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
         '  <w:docDefaults>\n'
-        '    <w:rPrDefault>\n'
-        '      <w:rPr>\n'
-        '        <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>\n'
-        '        <w:sz w:val="24"/>\n'
-        '        <w:szCs w:val="24"/>\n'
-        '      </w:rPr>\n'
-        '    </w:rPrDefault>\n'
-        '    <w:pPrDefault>\n'
-        '      <w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr>\n'
-        '    </w:pPrDefault>\n'
+        '    <w:rPrDefault><w:rPr>\n'
+        '      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>\n'
+        '      <w:sz w:val="22"/><w:szCs w:val="22"/>\n'
+        '      <w:color w:val="1A1A1A"/>\n'
+        '    </w:rPr></w:rPrDefault>\n'
+        '    <w:pPrDefault><w:pPr>\n'
+        '      <w:spacing w:after="120" w:line="276" w:lineRule="auto"/>\n'
+        '    </w:pPr></w:pPrDefault>\n'
         '  </w:docDefaults>\n'
         '  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">\n'
-        '    <w:name w:val="Normal"/>\n'
-        '    <w:qFormat/>\n'
+        '    <w:name w:val="Normal"/><w:qFormat/>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="Heading1">\n'
+        '    <w:name w:val="heading 1"/>\n'
+        '    <w:basedOn w:val="Normal"/><w:qFormat/>\n'
+        '    <w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/></w:pPr>\n'
+        '    <w:rPr>\n'
+        '      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>\n'
+        '      <w:b/><w:bCs/>\n'
+        '      <w:color w:val="1A3A5C"/>\n'
+        '      <w:sz w:val="32"/><w:szCs w:val="32"/>\n'
+        '    </w:rPr>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="Heading2">\n'
+        '    <w:name w:val="heading 2"/>\n'
+        '    <w:basedOn w:val="Normal"/><w:qFormat/>\n'
+        '    <w:pPr><w:keepNext/><w:spacing w:before="180" w:after="80"/></w:pPr>\n'
+        '    <w:rPr>\n'
+        '      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>\n'
+        '      <w:b/><w:bCs/>\n'
+        '      <w:color w:val="2E6DA4"/>\n'
+        '      <w:sz w:val="26"/><w:szCs w:val="26"/>\n'
+        '    </w:rPr>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="ListParagraph">\n'
+        '    <w:name w:val="List Paragraph"/>\n'
+        '    <w:basedOn w:val="Normal"/><w:qFormat/>\n'
+        '    <w:pPr><w:ind w:left="720"/></w:pPr>\n'
         '  </w:style>\n'
         '</w:styles>';
 
@@ -1075,6 +1426,33 @@ Future<void> _pptxToPdf(
         '  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>\n'
         '</w:settings>';
 
+    final numberingXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:abstractNum w:abstractNumId="1">\n'
+        '    <w:multiLevelType w:val="hybridMultilevel"/>\n'
+        '    <w:lvl w:ilvl="0">\n'
+        '      <w:start w:val="1"/><w:numFmt w:val="bullet"/>\n'
+        '      <w:lvlText w:val="•"/>\n'
+        '      <w:lvlJc w:val="left"/>\n'
+        '      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>\n'
+        '      <w:rPr><w:color w:val="2E6DA4"/><w:sz w:val="22"/></w:rPr>\n'
+        '    </w:lvl>\n'
+        '  </w:abstractNum>\n'
+        '  <w:abstractNum w:abstractNumId="2">\n'
+        '    <w:multiLevelType w:val="hybridMultilevel"/>\n'
+        '    <w:lvl w:ilvl="0">\n'
+        '      <w:start w:val="1"/><w:numFmt w:val="decimal"/>\n'
+        '      <w:lvlText w:val="%1."/>\n'
+        '      <w:lvlJc w:val="left"/>\n'
+        '      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>\n'
+        '      <w:rPr><w:color w:val="2E6DA4"/><w:b/><w:sz w:val="22"/></w:rPr>\n'
+        '    </w:lvl>\n'
+        '  </w:abstractNum>\n'
+        '  <w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num>\n'
+        '  <w:num w:numId="2"><w:abstractNumId w:val="2"/></w:num>\n'
+        '</w:numbering>';
+
     final ctXml =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
@@ -1083,6 +1461,7 @@ Future<void> _pptxToPdf(
         '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n'
         '  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>\n'
         '  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>\n'
+        '  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>\n'
         '</Types>';
 
     final relsXml =
@@ -1096,6 +1475,7 @@ Future<void> _pptxToPdf(
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
         '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n'
         '  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>\n'
+        '  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>\n'
         '</Relationships>';
 
     final zipBytes = _createZip({
@@ -1104,6 +1484,7 @@ Future<void> _pptxToPdf(
       'word/document.xml': utf8.encode(docXml),
       'word/styles.xml': utf8.encode(stylesXml),
       'word/settings.xml': utf8.encode(settingsXml),
+      'word/numbering.xml': utf8.encode(numberingXml),
       'word/_rels/document.xml.rels': utf8.encode(wordRelsXml),
     });
     if (zipBytes.isEmpty) throw Exception('DOCX encoding failed');
@@ -1116,15 +1497,66 @@ Future<void> _pptxToPdf(
   Future<void> _writeXlsx(String text, String output) async {
     final ex = excel_pkg.Excel.createExcel();
     final sheet = ex['Sheet1'];
-    final lines =
-        text.split('\n').where((l) => l.trim().isNotEmpty).toList();
-    if (lines.isEmpty) {
-      sheet.appendRow([excel_pkg.TextCellValue('(empty)')]);
-    } else {
-      for (final l in lines) {
-        sheet.appendRow([excel_pkg.TextCellValue(l)]);
+    final lines = (text.trim().isEmpty ? ['(empty)'] : text.split('\n'))
+        .where((l) => l.trim().isNotEmpty)
+        .toList();
+
+    for (final raw in lines) {
+      final kind = _classifyLine(raw);
+      String label;
+      switch (kind) {
+        case 'h1':
+          label = raw
+              .trim()
+              .replaceAll(RegExp(r'^#+\s*'), '')
+              .replaceAll(RegExp(r'^-{3,}\s*'), '')
+              .replaceAll(RegExp(r'\s*-{3,}$'), '');
+          break;
+        case 'h2':
+          label = raw.trim().replaceAll(RegExp(r'^#+\s*'), '');
+          break;
+        case 'bullet':
+          label =
+              '  • ${raw.trim().replaceFirst(RegExp(r'^[-•*]\s+'), '')}';
+          break;
+        case 'numbered':
+          label = '  ${raw.trim()}';
+          break;
+        default:
+          label = raw.trim();
+      }
+
+      final cell = excel_pkg.TextCellValue(label.isEmpty ? ' ' : label);
+      final rowIdx = sheet.maxRows;
+      sheet.appendRow([cell]);
+
+      if (kind == 'h1' || kind == 'h2') {
+        final cellStyle = excel_pkg.CellStyle(
+          bold: true,
+          backgroundColorHex: kind == 'h1'
+              ? excel_pkg.ExcelColor.fromHexString('#1A3A5C')
+              : excel_pkg.ExcelColor.fromHexString('#2E6DA4'),
+          fontColorHex: excel_pkg.ExcelColor.fromHexString('#FFFFFF'),
+          fontSize: kind == 'h1' ? 13 : 11,
+        );
+        sheet
+            .cell(excel_pkg.CellIndex.indexByColumnRow(
+                columnIndex: 0, rowIndex: rowIdx))
+            .cellStyle = cellStyle;
+      } else if (kind == 'bullet' || kind == 'numbered') {
+        final cellStyle = excel_pkg.CellStyle(
+          fontColorHex: excel_pkg.ExcelColor.fromHexString('#1A1A1A'),
+          fontSize: 10,
+        );
+        sheet
+            .cell(excel_pkg.CellIndex.indexByColumnRow(
+                columnIndex: 0, rowIndex: rowIdx))
+            .cellStyle = cellStyle;
       }
     }
+
+    sheet.setColumnWidth(0, 80);
+
     final b = ex.save();
     if (b == null) throw Exception('XLSX encode failed');
     await File(output).writeAsBytes(b);
@@ -1174,7 +1606,8 @@ Future<void> _pptxToPdf(
     const presProsCt =
         'application/vnd.openxmlformats-officedocument.presentationml.presProps+xml';
 
-    final masterXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    final masterXml =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<p:sldMaster xmlns:a="$aNs" xmlns:p="$pNs" xmlns:r="$rNs">'
         '<p:cSld>'
         '<p:bg><p:bgRef idx="1001"><a:schemeClr clr="bg1"/></p:bgRef></p:bg>'
@@ -1226,11 +1659,88 @@ Future<void> _pptxToPdf(
     final slideXmls = <String>[];
     for (int i = 0; i < effective.length; i += linesPerSlide) {
       final chunk = effective.skip(i).take(linesPerSlide).toList();
-      final paras = chunk
-          .map(_xmlEscape)
-          .map((l) =>
-              '<a:p><a:r><a:rPr lang="en-US" dirty="0" sz="1800"/><a:t>$l</a:t></a:r></a:p>')
-          .join('');
+      final slideNum = i ~/ linesPerSlide + 1;
+
+      String titleText;
+      List<String> bodyLines;
+      final firstKind = _classifyLine(chunk.first);
+      if (firstKind == 'h1' || firstKind == 'h2') {
+        titleText = chunk.first
+            .trim()
+            .replaceAll(RegExp(r'^#+\s*'), '')
+            .replaceAll(RegExp(r'^-{3,}\s*Slide\s+\d+\s*-{3,}$'),
+                'Slide $slideNum');
+        bodyLines = chunk.skip(1).toList();
+      } else {
+        titleText = 'Slide $slideNum';
+        bodyLines = chunk;
+      }
+
+      final paras = StringBuffer();
+      for (final raw in bodyLines) {
+        final kind = _classifyLine(raw);
+        final t = _xmlEscape(raw.trim());
+        switch (kind) {
+          case 'bullet':
+            final label =
+                _xmlEscape(raw.trim().replaceFirst(RegExp(r'^[-•*]\s+'), ''));
+            paras.write(
+              '<a:p>'
+              '<a:pPr marL="342900" indent="-342900">'
+              '<a:buChar char="•"/>'
+              '</a:pPr>'
+              '<a:r><a:rPr lang="en-US" dirty="0" sz="1600">'
+              '<a:solidFill><a:srgbClr val="1A1A1A"/></a:solidFill>'
+              '</a:rPr><a:t>$label</a:t></a:r></a:p>',
+            );
+            break;
+          case 'numbered':
+            final m = RegExp(r'^(\d+[.)]\s*)(.*)').firstMatch(raw.trim());
+            final num = _xmlEscape(m?.group(1) ?? '');
+            final label =
+                _xmlEscape((m?.group(2) ?? raw.trim()).trim());
+            paras.write(
+              '<a:p>'
+              '<a:pPr marL="342900" indent="-342900"><a:buNone/></a:pPr>'
+              '<a:r><a:rPr lang="en-US" dirty="0" sz="1600" b="1">'
+              '<a:solidFill><a:srgbClr val="2E6DA4"/></a:solidFill>'
+              '</a:rPr><a:t>$num</a:t></a:r>'
+              '<a:r><a:rPr lang="en-US" dirty="0" sz="1600">'
+              '<a:solidFill><a:srgbClr val="1A1A1A"/></a:solidFill>'
+              '</a:rPr><a:t>$label</a:t></a:r></a:p>',
+            );
+            break;
+          case 'h2':
+            final label = _xmlEscape(
+                raw.trim().replaceAll(RegExp(r'^#+\s*'), ''));
+            paras.write(
+              '<a:p><a:pPr><a:buNone/></a:pPr>'
+              '<a:r><a:rPr lang="en-US" dirty="0" sz="1800" b="1">'
+              '<a:solidFill><a:srgbClr val="2E6DA4"/></a:solidFill>'
+              '</a:rPr><a:t>$label</a:t></a:r></a:p>',
+            );
+            break;
+          case 'blank':
+            paras.write(
+                '<a:p><a:endParaRPr lang="en-US" dirty="0" sz="1400"/></a:p>');
+            break;
+          default:
+            if (t.isEmpty) {
+              paras.write(
+                  '<a:p><a:endParaRPr lang="en-US" dirty="0" sz="1400"/></a:p>');
+            } else {
+              paras.write(
+                '<a:p><a:pPr><a:buNone/></a:pPr>'
+                '<a:r><a:rPr lang="en-US" dirty="0" sz="1600">'
+                '<a:solidFill><a:srgbClr val="1A1A1A"/></a:solidFill>'
+                '</a:rPr><a:t>$t</a:t></a:r></a:p>',
+              );
+            }
+        }
+      }
+
+      final escapedTitle =
+          _xmlEscape(titleText.isEmpty ? 'Slide $slideNum' : titleText);
 
       slideXmls.add(
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -1242,20 +1752,64 @@ Future<void> _pptxToPdf(
         '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>'
         '<p:sp>'
         '<p:nvSpPr>'
-        '<p:cNvPr id="2" name="TextBox"/>'
+        '<p:cNvPr id="2" name="TitleBg"/>'
+        '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+        '<p:nvPr/>'
+        '</p:nvSpPr>'
+        '<p:spPr>'
+        '<a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="1143000"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        '<a:solidFill><a:srgbClr val="1A3A5C"/></a:solidFill>'
+        '</p:spPr>'
+        '<p:txBody>'
+        '<a:bodyPr lIns="457200" tIns="180000" rIns="457200" bIns="91440" anchor="ctr"/>'
+        '<a:lstStyle/>'
+        '<a:p><a:r>'
+        '<a:rPr lang="en-US" dirty="0" sz="2400" b="1">'
+        '<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>'
+        '</a:rPr>'
+        '<a:t>$escapedTitle</a:t>'
+        '</a:r></a:p>'
+        '</p:txBody>'
+        '</p:sp>'
+        '<p:sp>'
+        '<p:nvSpPr>'
+        '<p:cNvPr id="3" name="ContentBox"/>'
         '<p:cNvSpPr txBox="1"><a:spLocks noGrp="1"/></p:cNvSpPr>'
         '<p:nvPr/>'
         '</p:nvSpPr>'
         '<p:spPr>'
-        '<a:xfrm><a:off x="457200" y="457200"/>'
-        '<a:ext cx="8229600" cy="5486400"/></a:xfrm>'
+        '<a:xfrm><a:off x="457200" y="1280000"/>'
+        '<a:ext cx="8229600" cy="4800000"/></a:xfrm>'
         '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
         '<a:noFill/>'
         '</p:spPr>'
         '<p:txBody>'
         '<a:bodyPr wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t"/>'
         '<a:lstStyle/>'
-        '$paras'
+        '${paras.isEmpty ? "<a:p><a:endParaRPr/></a:p>" : paras.toString()}'
+        '</p:txBody>'
+        '</p:sp>'
+        '<p:sp>'
+        '<p:nvSpPr>'
+        '<p:cNvPr id="4" name="SlideNum"/>'
+        '<p:cNvSpPr txBox="1"><a:spLocks noGrp="1"/></p:cNvSpPr>'
+        '<p:nvPr/>'
+        '</p:nvSpPr>'
+        '<p:spPr>'
+        '<a:xfrm><a:off x="7620000" y="6400000"/>'
+        '<a:ext cx="1524000" cy="304800"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        '<a:noFill/>'
+        '</p:spPr>'
+        '<p:txBody>'
+        '<a:bodyPr anchor="ctr"/><a:lstStyle/>'
+        '<a:p><a:pPr algn="r"/>'
+        '<a:r><a:rPr lang="en-US" dirty="0" sz="1000">'
+        '<a:solidFill><a:srgbClr val="888888"/></a:solidFill>'
+        '</a:rPr>'
+        '<a:t>$slideNum / ${(effective.length / linesPerSlide).ceil()}</a:t>'
+        '</a:r></a:p>'
         '</p:txBody>'
         '</p:sp>'
         '</p:spTree>'
