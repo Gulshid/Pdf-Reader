@@ -7,17 +7,23 @@ import '../features/converter/ui/converter_screen.dart';
 import '../features/home/ui/ home_screen.dart';
 import '../features/pdf_viewer/ui/pdf_viewer_screen.dart';
 import '../features/recent/ui/recent_screen.dart';
+import '../features/splash/ui/splash_screen.dart';
 import '../shared/models/pdf_file_model.dart';
 
 abstract class AppRouter {
+  static const splash = '/splash';
   static const home = '/';
   static const pdfViewer = '/pdf-viewer';
   static const converter = '/converter';
   static const recent = '/recent';
 
   static GoRouter create() => GoRouter(
-        initialLocation: home,
+        initialLocation: splash,
         routes: [
+          GoRoute(
+            path: splash,
+            builder: (ctx, state) => const SplashScreen(),
+          ),
           GoRoute(
             path: home,
             builder: (ctx, state) => const HomeScreen(),
