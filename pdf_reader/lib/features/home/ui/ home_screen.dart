@@ -56,10 +56,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openExternalFile(String path) {
-    // Open ALL file types inside the app — never use OpenFilex.open()
-    // as that re-launches the system "Open with" picker causing the loop.
     final file = PdfFileModel.fromFile(File(path));
-    context.push(AppRouter.pdfViewer, extra: file);
+    context.push(AppRouter.fileViewer, extra: file);
   }
 
   @override

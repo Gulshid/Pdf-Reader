@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import 'package:open_filex/open_filex.dart';
 
 import '../../../routes/app_router.dart';
 import '../bloc/recent_bloc.dart';
@@ -74,11 +73,7 @@ class _RecentScreenState extends State<RecentScreen> {
               return Card(
                 child: ListTile(
                   onTap: () {
-                    if (file.extension.toUpperCase() == 'PDF') {
-                      ctx.push(AppRouter.pdfViewer, extra: file);
-                    } else {
-                      OpenFilex.open(file.path);
-                    }
+                    ctx.push(AppRouter.fileViewer, extra: file);
                   },
                   leading: Container(
                     width: 40.w,

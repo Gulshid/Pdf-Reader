@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pdf_reader/features/home/bloc/home_event.dart';
 import 'package:pdf_reader/features/home/bloc/home_state.dart';
 import 'package:pdf_reader/features/home/ui/widgets/empty_state.dart';
-import 'package:open_filex/open_filex.dart';
+import '../../../../shared/models/pdf_file_model.dart' show FileType;
 
 import '../../../../routes/app_router.dart';
 import '../../../shared/models/pdf_file_model.dart';
@@ -211,10 +211,10 @@ class _FilesTabState extends State<FilesTab> {
   }
 
   void _openFile(BuildContext context, PdfFileModel file) {
-    if (file.extension.toUpperCase() == 'PDF') {
+    if (file.fileType == FileType.pdf) {
       context.push(AppRouter.pdfViewer, extra: file);
     } else {
-      OpenFilex.open(file.path);
+      context.push(AppRouter.fileViewer, extra: file);
     }
   }
 

@@ -8,7 +8,6 @@ import '../features/converter/bloc/converter_bloc.dart';
 import '../features/converter/ui/converter_screen.dart';
 import '../features/file_viewer/ui/file_viewer_screen.dart';
 import '../features/home/ui/ home_screen.dart';
-import '../features/pdf_viewer/ui/pdf_viewer_screen.dart';
 import '../features/recent/ui/recent_screen.dart';
 import '../features/splash/ui/splash_screen.dart';
 import '../shared/models/pdf_file_model.dart';
@@ -16,8 +15,9 @@ import '../shared/models/pdf_file_model.dart';
 abstract class AppRouter {
   static const splash          = '/splash';
   static const home            = '/';
+  // Both old routes kept for backwards-compat; both render FileViewerScreen
   static const pdfViewer       = '/pdf-viewer';
-  static const fileViewer      = '/file-viewer'; // ← new
+  static const fileViewer      = '/file-viewer';
   static const converter       = '/converter';
   static const recent          = '/recent';
   static const bookmarks       = '/bookmarks';
@@ -44,14 +44,17 @@ abstract class AppRouter {
             path: home,
             builder: (ctx, state) => const HomeScreen(),
           ),
+
+          // ── Unified viewer — handles every file type ──────────────────────
+          // /pdf-viewer kept so any existing deep-links / navigation calls
+          // that push AppRouter.pdfViewer still work.
           GoRoute(
             path: pdfViewer,
             builder: (ctx, state) {
               final file = state.extra as PdfFileModel;
-              return PdfViewerScreen(file: file);
+              return FileViewerScreen(file: file);
             },
           ),
-          // Universal in-app viewer for all non-PDF formats
           GoRoute(
             path: fileViewer,
             builder: (ctx, state) {
@@ -59,6 +62,7 @@ abstract class AppRouter {
               return FileViewerScreen(file: file);
             },
           ),
+
           GoRoute(
             path: converter,
             builder: (ctx, state) {

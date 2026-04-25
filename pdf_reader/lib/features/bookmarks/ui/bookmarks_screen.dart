@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import 'package:open_filex/open_filex.dart';
 
 import '../../../routes/app_router.dart';
 import '../../../shared/models/pdf_file_model.dart';
@@ -146,10 +145,6 @@ class _BookmarkCard extends StatelessWidget {
   }
 
   void _open(BuildContext context) {
-    if (file.extension.toUpperCase() == 'PDF') {
-      context.push(AppRouter.pdfViewer, extra: file);
-    } else {
-      OpenFilex.open(file.path);
-    }
+    context.push(AppRouter.fileViewer, extra: file);
   }
 }
