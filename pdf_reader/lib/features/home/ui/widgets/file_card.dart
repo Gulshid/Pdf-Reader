@@ -1,8 +1,8 @@
-// lib/features/home/presentation/widgets/file_card.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../../../core/services/reading_progress_service.dart';
 import '../../../../shared/models/pdf_file_model.dart';
 
 class FileCard extends StatelessWidget {
@@ -13,6 +13,7 @@ class FileCard extends StatelessWidget {
     required this.onConvert,
     required this.onBookmark,
     required this.onDelete,
+    required this.onShare,
     this.isGrid = false,
   });
 
@@ -21,6 +22,7 @@ class FileCard extends StatelessWidget {
   final VoidCallback onConvert;
   final VoidCallback onBookmark;
   final VoidCallback onDelete;
+  final VoidCallback onShare;
   final bool isGrid;
 
   @override
@@ -29,6 +31,8 @@ class FileCard extends StatelessWidget {
   }
 }
 
+// ── List card ─────────────────────────────────────────────────────────────────
+
 class _ListCard extends StatelessWidget {
   const _ListCard(this.widget);
   final FileCard widget;
@@ -36,44 +40,77 @@ class _ListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final progress = widget.file.extension.toUpperCase() == 'PDF'
+        ? ReadingProgressService.get(widget.file.id)
+        : null;
 
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(16.r),
         onTap: widget.onTap,
-        child: Padding(
-          padding: EdgeInsets.all(12.w),
-          child: Row(
-            children: [
-              _FileIcon(ext: widget.file.extension),
-              SizedBox(width: 12.w),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.file.name,
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: EdgeInsets.all(12.w),
+              child: Row(
+                children: [
+                  _FileIcon(ext: widget.file.extension),
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.file.name,
+                          style: theme.textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 4.h),
+                        Text(
+                          '${widget.file.sizeFormatted} • ${widget.file.dateFormatted}',
+                          style: theme.textTheme.labelSmall,
+                        ),
+                        if (progress != null && progress.totalPages > 0) ...[
+                          SizedBox(height: 4.h),
+                          Text(
+                            progress.label,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    SizedBox(height: 4.h),
-                    Text(
-                      '${widget.file.sizeFormatted} • ${widget.file.dateFormatted}',
-                      style: theme.textTheme.labelSmall,
-                    ),
-                  ],
+                  ),
+                  _ActionMenu(widget: widget),
+                ],
+              ),
+            ),
+            // Reading progress bar
+            if (progress != null && progress.totalPages > 0)
+              ClipRRect(
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(16.r),
+                  bottomRight: Radius.circular(16.r),
+                ),
+                child: LinearProgressIndicator(
+                  value: progress.fraction,
+                  minHeight: 3,
+                  backgroundColor:
+                      theme.colorScheme.primary.withOpacity(0.12),
                 ),
               ),
-              _ActionMenu(widget: widget),
-            ],
-          ),
+          ],
         ),
       ),
     );
   }
 }
+
+// ── Grid card ─────────────────────────────────────────────────────────────────
 
 class _GridCard extends StatelessWidget {
   const _GridCard(this.widget);
@@ -82,6 +119,9 @@ class _GridCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final progress = widget.file.extension.toUpperCase() == 'PDF'
+        ? ReadingProgressService.get(widget.file.id)
+        : null;
 
     return Card(
       child: InkWell(
@@ -104,7 +144,31 @@ class _GridCard extends StatelessWidget {
               ),
             ),
             SizedBox(height: 4.h),
-            Text(widget.file.sizeFormatted, style: theme.textTheme.labelSmall),
+            Text(widget.file.sizeFormatted,
+                style: theme.textTheme.labelSmall),
+            if (progress != null && progress.totalPages > 0) ...[
+              SizedBox(height: 4.h),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12.w),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4.r),
+                  child: LinearProgressIndicator(
+                    value: progress.fraction,
+                    minHeight: 4,
+                    backgroundColor:
+                        theme.colorScheme.primary.withOpacity(0.12),
+                  ),
+                ),
+              ),
+              SizedBox(height: 2.h),
+              Text(
+                progress.label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontSize: 9.sp,
+                ),
+              ),
+            ],
             SizedBox(height: 4.h),
             _ActionMenu(widget: widget),
           ],
@@ -113,6 +177,8 @@ class _GridCard extends StatelessWidget {
     );
   }
 }
+
+// ── Shared sub-widgets ────────────────────────────────────────────────────────
 
 class _FileIcon extends StatelessWidget {
   const _FileIcon({required this.ext, this.size});
@@ -159,6 +225,11 @@ class _ActionMenu extends StatelessWidget {
   const _ActionMenu({required this.widget});
   final FileCard widget;
 
+  Future<void> _shareFile() async {
+    await Share.shareXFiles([XFile(widget.file.path)],
+        subject: widget.file.name);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
@@ -167,6 +238,7 @@ class _ActionMenu extends StatelessWidget {
         switch (value) {
           case 'convert':  widget.onConvert();
           case 'bookmark': widget.onBookmark();
+          case 'share':    _shareFile();
           case 'delete':   widget.onDelete();
         }
       },
@@ -177,6 +249,14 @@ class _ActionMenu extends StatelessWidget {
             const Icon(Icons.swap_horiz_rounded),
             SizedBox(width: 8.w),
             const Text('Convert'),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'share',
+          child: Row(children: [
+            const Icon(Icons.share_rounded),
+            SizedBox(width: 8.w),
+            const Text('Share'),
           ]),
         ),
         PopupMenuItem(

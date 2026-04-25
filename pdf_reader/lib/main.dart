@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'core/di/injection_container.dart';
+import 'core/services/reading_progress_service.dart';
 import 'pdf_reader_app.dart';
 
 void main() async {
@@ -17,6 +18,9 @@ void main() async {
   // Init Hive
   await Hive.initFlutter();
   await _openHiveBoxes();
+
+  // Init reading progress
+  await ReadingProgressService.init();
 
   // Init DI
   await configureDependencies();

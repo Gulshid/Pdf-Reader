@@ -3,13 +3,14 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
 
+import '../../../core/services/reading_progress_service.dart';
 import 'pdf_viewer_event.dart';
 import 'pdf_viewer_state.dart';
 
 class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
   PdfViewerBloc() : super(const PdfViewerState()) {
     on<PdfViewerLoadEvent>(_onLoad);
-    on<PdfViewerDocumentLoadedEvent>(_onDocumentLoaded); // ✅ new
+    on<PdfViewerDocumentLoadedEvent>(_onDocumentLoaded);
     on<PdfViewerPageChangedEvent>(_onPageChanged);
     on<PdfViewerZoomChangedEvent>(_onZoom);
     on<PdfViewerToggleNightModeEvent>(_onNightMode);
@@ -19,8 +20,11 @@ class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
   }
 
   final _box = Hive.box<String>('bookmarks');
+  String? _fileId; // cached for progress saves
 
   void _onLoad(PdfViewerLoadEvent event, Emitter<PdfViewerState> emit) {
+    _fileId = event.path.hashCode.toString();
+
     final key = 'viewer_bookmarks_${event.path.hashCode}';
     final raw = _box.get(key);
     Set<int> bookmarks = {};
@@ -28,24 +32,44 @@ class PdfViewerBloc extends Bloc<PdfViewerEvent, PdfViewerState> {
       final List<dynamic> list = jsonDecode(raw);
       bookmarks = list.cast<int>().toSet();
     }
+
+    // Restore last-read page
+    final progress = ReadingProgressService.get(_fileId!);
+    final lastPage = progress?.currentPage ?? 0;
+
     emit(state.copyWith(
       status: PdfViewerStatus.loaded,
       filePath: event.path,
       bookmarkedPages: bookmarks,
-      // ✅ Reset totalPages until the document actually loads
       totalPages: 0,
+      currentPage: lastPage,
     ));
   }
 
-  // ✅ Only updates totalPages — never touches currentPage
   void _onDocumentLoaded(
       PdfViewerDocumentLoadedEvent event, Emitter<PdfViewerState> emit) {
     emit(state.copyWith(totalPages: event.totalPages));
+    // Update total in progress store
+    if (_fileId != null) {
+      ReadingProgressService.save(
+        _fileId!,
+        state.currentPage,
+        totalPages: event.totalPages,
+      );
+    }
   }
 
   void _onPageChanged(
       PdfViewerPageChangedEvent event, Emitter<PdfViewerState> emit) {
     emit(state.copyWith(currentPage: event.page));
+    // Persist progress on every page turn
+    if (_fileId != null) {
+      ReadingProgressService.save(
+        _fileId!,
+        event.page,
+        totalPages: state.totalPages > 0 ? state.totalPages : null,
+      );
+    }
   }
 
   void _onZoom(

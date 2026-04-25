@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:go_router/go_router.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:pdf_reader/features/bookmarks/ui/bookmarks_screen.dart';
 import 'package:pdf_reader/features/converter/bloc/converter_bloc.dart';
 import 'package:pdf_reader/features/converter/bloc/converter_state.dart';
 import 'package:pdf_reader/features/converter/ui/converter_screen.dart';
@@ -11,10 +15,12 @@ import 'package:pdf_reader/features/recent/bloc/recent_bloc.dart';
 import 'package:pdf_reader/features/recent/bloc/recent_event.dart';
 import 'package:pdf_reader/shared/models/pdf_file_model.dart';
 
+import '../../../core/services/intent_handler_service.dart';
 import '../../../core/theme/theme_cubit.dart';
+import '../../../routes/app_router.dart';
+import '../../../shared/models/conversion_task_model.dart';
 import '../bloc/home_bloc.dart';
 import '../bloc/home_event.dart';
-import '../../../shared/models/conversion_task_model.dart';
 import '../../recent/ui/recent_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -26,15 +32,39 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
+  StreamSubscription<String?>? _intentSub;
 
-  // Keep all tab states alive with IndexedStack
-  // Both ConverterScreen and RecentScreen get isEmbedded:true so they
-  // skip their own Scaffold/AppBar (they live inside HomeScreen's Scaffold).
   final List<Widget> _tabs = const [
     FilesTab(),
+    BookmarksScreen(isEmbedded: true),
     ConverterScreen(isEmbedded: true),
     RecentScreen(isEmbedded: true),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen for files shared/opened while app is already running
+    _intentSub = IntentHandlerService.onNewFilePath.listen((path) {
+      if (path != null && mounted) _openExternalFile(path);
+    });
+  }
+
+  @override
+  void dispose() {
+    _intentSub?.cancel();
+    super.dispose();
+  }
+
+  void _openExternalFile(String path) {
+    final ext = path.split('.').last.toUpperCase();
+    if (ext == 'PDF') {
+      final file = PdfFileModel.fromFile(File(path));
+      context.push(AppRouter.pdfViewer, extra: file);
+    } else {
+      OpenFilex.open(path);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,31 +72,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return BlocListener<ConverterBloc, ConverterState>(
       listenWhen: (prev, curr) =>
-          prev.status != curr.status &&
-          curr.status == ConverterStatus.done,
+          prev.status != curr.status && curr.status == ConverterStatus.done,
       listener: (context, state) {
-        // Bug Fix 3: Reload the Files tab so the converted file appears
-        // immediately without needing a hot restart.
         context.read<HomeBloc>().add(const HomeLoadFilesEvent());
-
-        // Bug Fix 2: Add the converted file to the Recent list so the
-        // Recent tab shows it straight away.
         if (state.outputPath != null) {
           final outputFile = File(state.outputPath!);
           if (outputFile.existsSync()) {
-            context.read<RecentBloc>().add(
-                  RecentAddEvent(PdfFileModel.fromFile(outputFile)),
-                );
+            context
+                .read<RecentBloc>()
+                .add(RecentAddEvent(PdfFileModel.fromFile(outputFile)));
           }
         }
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-            _appBarTitle(),
-            style: theme.textTheme.titleLarge,
-          ),
+          title: Text(_appBarTitle(), style: theme.textTheme.titleLarge),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_rounded),
+              tooltip: 'Settings',
+              onPressed: () => context.push(AppRouter.appLockSettings),
+            ),
             IconButton(
               icon: Icon(
                 theme.brightness == Brightness.dark
@@ -78,13 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(width: 4.w),
           ],
         ),
-
-        // IndexedStack keeps all tabs mounted & preserves scroll/state
-        body: IndexedStack(
-          index: _navIndex,
-          children: _tabs,
-        ),
-
+        body: IndexedStack(index: _navIndex, children: _tabs),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _navIndex,
           onDestinationSelected: (i) => setState(() => _navIndex = i),
@@ -93,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.folder_outlined),
               selectedIcon: Icon(Icons.folder_rounded),
               label: 'Files',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.bookmark_outline_rounded),
+              selectedIcon: Icon(Icons.bookmark_rounded),
+              label: 'Bookmarks',
             ),
             NavigationDestination(
               icon: Icon(Icons.swap_horiz_outlined),
@@ -106,8 +131,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-
-        // FAB only visible on Files tab
         floatingActionButton: _navIndex == 0
             ? FloatingActionButton.extended(
                 onPressed: () =>
@@ -122,8 +145,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _appBarTitle() => switch (_navIndex) {
         0 => 'PDF Reader Pro',
-        1 => 'Convert',
-        2 => 'Recent',
+        1 => 'Bookmarks',
+        2 => 'Convert',
+        3 => 'Recent',
         _ => 'PDF Reader Pro',
       };
 }

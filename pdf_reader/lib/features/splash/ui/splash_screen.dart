@@ -1,8 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:open_filex/open_filex.dart';
+
+import '../../../core/services/intent_handler_service.dart';
 import '../../../routes/app_router.dart';
+import '../../../shared/models/pdf_file_model.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -27,7 +33,6 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    // Icon: scale + fade in
     _iconController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -41,7 +46,6 @@ class _SplashScreenState extends State<SplashScreen>
       curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
     ).drive(Tween(begin: 0.0, end: 1.0));
 
-    // Text: fade + slide up
     _textController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -58,7 +62,6 @@ class _SplashScreenState extends State<SplashScreen>
       end: Offset.zero,
     ));
 
-    // Progress bar
     _progressController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -72,17 +75,42 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _runSequence() async {
-    // Step 1: icon appears
     await _iconController.forward();
-    // Step 2: text fades in shortly after
     await Future.delayed(const Duration(milliseconds: 100));
     _textController.forward();
-    // Step 3: progress bar fills
     await Future.delayed(const Duration(milliseconds: 200));
     await _progressController.forward();
-    // Step 4: short pause then navigate
     await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) context.go(AppRouter.home);
+
+    if (!mounted) return;
+
+    // ── Check if launched from an external file intent ──────────────────────
+    final filePath = await IntentHandlerService.getInitialFilePath();
+    if (!mounted) return;
+
+    if (filePath != null) {
+      _openExternalFile(filePath);
+    } else {
+      context.go(AppRouter.home);
+    }
+  }
+
+  void _openExternalFile(String path) {
+    final ext = path.split('.').last.toUpperCase();
+    if (ext == 'PDF') {
+      final file = PdfFileModel.fromFile(File(path));
+      context.go(AppRouter.home);
+      // Small delay so HomeScreen is mounted before pushing viewer
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) context.push(AppRouter.pdfViewer, extra: file);
+      });
+    } else {
+      // Non-PDF: go home first, then open with system viewer
+      context.go(AppRouter.home);
+      Future.delayed(const Duration(milliseconds: 300), () {
+        OpenFilex.open(path);
+      });
+    }
   }
 
   @override
@@ -99,9 +127,8 @@ class _SplashScreenState extends State<SplashScreen>
     final primary = isDark ? const Color(0xFF5A8FBF) : const Color(0xFF1F2D3D);
     final bg = isDark ? const Color(0xFF080A0C) : const Color(0xFFF2F3F5);
     final onBg = isDark ? const Color(0xFFE8EAED) : const Color(0xFF0A0C0F);
-    final subtle = isDark
-        ? const Color(0xFF1C232B)
-        : const Color(0xFFDDE1E7);
+    final subtle =
+        isDark ? const Color(0xFF1C232B) : const Color(0xFFDDE1E7);
 
     return Scaffold(
       backgroundColor: bg,
@@ -110,8 +137,6 @@ class _SplashScreenState extends State<SplashScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Spacer(flex: 3),
-
-            // App icon
             AnimatedBuilder(
               animation: _iconController,
               builder: (_, __) => Opacity(
@@ -141,10 +166,7 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
             ),
-
             SizedBox(height: 28.h),
-
-            // App name + tagline
             AnimatedBuilder(
               animation: _textController,
               builder: (_, __) => FadeTransition(
@@ -176,10 +198,7 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
             ),
-
             const Spacer(flex: 3),
-
-            // Loading bar
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 48.w),
               child: AnimatedBuilder(
@@ -190,12 +209,7 @@ class _SplashScreenState extends State<SplashScreen>
                       borderRadius: BorderRadius.circular(100),
                       child: Stack(
                         children: [
-                          // Track
-                          Container(
-                            height: 3.h,
-                            color: subtle,
-                          ),
-                          // Fill
+                          Container(height: 3.h, color: subtle),
                           FractionallySizedBox(
                             widthFactor: _progressWidth.value,
                             child: Container(
@@ -224,7 +238,6 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
             ),
-
             SizedBox(height: 48.h),
           ],
         ),

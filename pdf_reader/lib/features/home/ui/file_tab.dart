@@ -1,5 +1,3 @@
-// lib/features/home/presentation/screens/files_tab.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -7,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:pdf_reader/features/home/bloc/home_event.dart';
 import 'package:pdf_reader/features/home/bloc/home_state.dart';
 import 'package:pdf_reader/features/home/ui/widgets/empty_state.dart';
-
 import 'package:open_filex/open_filex.dart';
 
 import '../../../../routes/app_router.dart';
@@ -24,11 +21,22 @@ class FilesTab extends StatefulWidget {
 
 class _FilesTabState extends State<FilesTab> {
   final _searchController = TextEditingController();
+  // Format filter: null = All
+  String? _formatFilter;
+
+  static const _formats = ['PDF', 'DOCX', 'TXT', 'XLSX', 'PNG', 'JPG'];
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  List<PdfFileModel> _applyFormatFilter(List<PdfFileModel> files) {
+    if (_formatFilter == null) return files;
+    return files
+        .where((f) => f.extension.toUpperCase() == _formatFilter)
+        .toList();
   }
 
   @override
@@ -38,7 +46,7 @@ class _FilesTabState extends State<FilesTab> {
 
     return Column(
       children: [
-        // Search bar
+        // ── Search bar ──────────────────────────────────────────────────────
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
           child: TextField(
@@ -53,7 +61,7 @@ class _FilesTabState extends State<FilesTab> {
                       icon: const Icon(Icons.close_rounded),
                       onPressed: () {
                         _searchController.clear();
-                        setState(() {}); // rebuild to hide X button
+                        setState(() {});
                         context
                             .read<HomeBloc>()
                             .add(const HomeSearchEvent(''));
@@ -64,7 +72,38 @@ class _FilesTabState extends State<FilesTab> {
           ),
         ),
 
-        // Main content
+        // ── Format filter chips ──────────────────────────────────────────────
+        SizedBox(
+          height: 38.h,
+          child: ListView(
+            padding: EdgeInsets.symmetric(horizontal: 16.w),
+            scrollDirection: Axis.horizontal,
+            children: [
+              // "All" chip
+              Padding(
+                padding: EdgeInsets.only(right: 6.w),
+                child: FilterChip(
+                  label: const Text('All'),
+                  selected: _formatFilter == null,
+                  onSelected: (_) => setState(() => _formatFilter = null),
+                ),
+              ),
+              ..._formats.map((fmt) => Padding(
+                    padding: EdgeInsets.only(right: 6.w),
+                    child: FilterChip(
+                      label: Text(fmt),
+                      selected: _formatFilter == fmt,
+                      onSelected: (_) =>
+                          setState(() => _formatFilter = fmt == _formatFilter ? null : fmt),
+                    ),
+                  )),
+            ],
+          ),
+        ),
+
+        SizedBox(height: 4.h),
+
+        // ── Main content ────────────────────────────────────────────────────
         Expanded(
           child: BlocBuilder<HomeBloc, HomeState>(
             builder: (context, state) {
@@ -93,7 +132,9 @@ class _FilesTabState extends State<FilesTab> {
                 );
               }
 
-              if (state.filteredFiles.isEmpty) {
+              final displayFiles = _applyFormatFilter(state.filteredFiles);
+
+              if (displayFiles.isEmpty) {
                 return const EmptyState();
               }
 
@@ -116,14 +157,15 @@ class _FilesTabState extends State<FilesTab> {
                               crossAxisSpacing: 12.w,
                               childAspectRatio: 0.75,
                             ),
-                            itemCount: state.filteredFiles.length,
+                            itemCount: displayFiles.length,
                             itemBuilder: (ctx, i) {
-                              final file = state.filteredFiles[i];
+                              final file = displayFiles[i];
                               return FileCard(
                                 file: file,
                                 isGrid: true,
                                 onTap: () => _openFile(ctx, file),
                                 onConvert: () => _openConverter(ctx, file),
+                                onShare: () => _share(file),
                                 onBookmark: () => ctx
                                     .read<HomeBloc>()
                                     .add(HomeToggleBookmarkEvent(file.id)),
@@ -138,14 +180,15 @@ class _FilesTabState extends State<FilesTab> {
                         return ListView.separated(
                           padding: EdgeInsets.symmetric(
                               horizontal: 16.w, vertical: 8.h),
-                          itemCount: state.filteredFiles.length,
+                          itemCount: displayFiles.length,
                           separatorBuilder: (_, __) => SizedBox(height: 8.h),
                           itemBuilder: (ctx, i) {
-                            final file = state.filteredFiles[i];
+                            final file = displayFiles[i];
                             return FileCard(
                               file: file,
                               onTap: () => _openFile(ctx, file),
                               onConvert: () => _openConverter(ctx, file),
+                              onShare: () => _share(file),
                               onBookmark: () => ctx
                                   .read<HomeBloc>()
                                   .add(HomeToggleBookmarkEvent(file.id)),
@@ -177,6 +220,11 @@ class _FilesTabState extends State<FilesTab> {
 
   void _openConverter(BuildContext context, PdfFileModel file) =>
       context.push(AppRouter.converter, extra: file);
+
+  Future<void> _share(PdfFileModel file) async {
+    // Share is handled inside FileCard via share_plus
+    // This is a no-op placeholder; FileCard calls share_plus directly.
+  }
 }
 
 class _SortBar extends StatelessWidget {
