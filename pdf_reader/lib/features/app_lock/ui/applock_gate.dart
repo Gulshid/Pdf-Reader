@@ -31,7 +31,9 @@ class _AppLockGateState extends State<AppLockGate> {
   @override
   void initState() {
     super.initState();
-    _checkBiometricAndPrompt();
+    // Only check if biometric is available — do NOT auto-trigger the prompt.
+    // The user must tap the button themselves.
+    _checkBiometricAvailability();
   }
 
   @override
@@ -40,19 +42,17 @@ class _AppLockGateState extends State<AppLockGate> {
     super.dispose();
   }
 
-  Future<void> _checkBiometricAndPrompt() async {
+  Future<void> _checkBiometricAvailability() async {
     final available = await AppLockService.isBiometricAvailable;
     if (!mounted) return;
     setState(() => _biometricAvailable = available);
-
-    // Auto-trigger biometric prompt immediately on open
-    if (available) {
-      await _tryBiometric();
-    }
+    // ← NO auto-call to _tryBiometric() here anymore
   }
 
   Future<void> _tryBiometric() async {
+    // Guard: if already authenticating, do nothing — prevents repeat dialogs
     if (_authenticating) return;
+
     setState(() {
       _authenticating = true;
       _error = null;
@@ -61,10 +61,13 @@ class _AppLockGateState extends State<AppLockGate> {
     final ok = await AppLockService.authenticateWithBiometrics();
 
     if (!mounted) return;
+
     if (ok) {
       Navigator.of(context).pop();
       return;
     }
+
+    // Auth failed or cancelled — reset state, let user try again manually
     setState(() => _authenticating = false);
   }
 
@@ -112,14 +115,14 @@ class _AppLockGateState extends State<AppLockGate> {
                   ),
                   SizedBox(height: 32.h),
 
-                  // PIN field
+                  // PIN field — autofocus always (no biometric auto-popup stealing focus)
                   TextField(
                     controller: _pinController,
                     keyboardType: TextInputType.number,
                     obscureText: true,
                     maxLength: 6,
                     textAlign: TextAlign.center,
-                    autofocus: !_biometricAvailable,
+                    autofocus: true,
                     decoration: InputDecoration(
                       labelText: 'PIN',
                       counterText: '',
@@ -139,7 +142,7 @@ class _AppLockGateState extends State<AppLockGate> {
                     ),
                   ),
 
-                  // Biometric button — shown only when available
+                  // Biometric button — only shown when available, only triggers on tap
                   if (_biometricAvailable) ...[
                     SizedBox(height: 12.h),
                     SizedBox(

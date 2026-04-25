@@ -1085,15 +1085,20 @@ class ConversionService {
     if (t.startsWith('# ')) return 'h1';
     if (t.length <= 60 &&
         t == t.toUpperCase() &&
-        RegExp(r'[A-Z]').hasMatch(t)) return 'h1';
+        RegExp(r'[A-Z]').hasMatch(t)) {
+      return 'h1';
+    }
     if (t.endsWith(':') &&
         t.length <= 60 &&
         !t.startsWith('-') &&
-        !t.startsWith('•')) return 'h2';
+        !t.startsWith('•')) {
+      return 'h2';
+    }
     if (RegExp(r'^-{3,}\s*Slide\s+\d+\s*-{3,}$').hasMatch(t)) return 'h1';
     if (RegExp(r'^[-=]{3,}$').hasMatch(t)) return 'blank';
-    if (t.startsWith('- ') || t.startsWith('• ') || t.startsWith('* '))
+    if (t.startsWith('- ') || t.startsWith('• ') || t.startsWith('* ')) {
       return 'bullet';
+    }
     if (RegExp(r'^\d+[.)]\s').hasMatch(t)) return 'numbered';
     return 'body';
   }

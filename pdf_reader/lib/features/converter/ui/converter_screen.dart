@@ -363,7 +363,7 @@ class _SourceCard extends StatelessWidget {
           ),
           child: Center(
             child: Text(
-              state.sourceFile!.extension.toUpperCase(),
+              (state.sourceFormat?.label ?? state.sourceFile!.extension).toUpperCase(),
               style: TextStyle(
                 color: cs.primary,
                 fontWeight: FontWeight.w800,

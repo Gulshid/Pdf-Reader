@@ -5,7 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/utils/file_utils.dart';
-import '../../../shared/models/pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart' hide FileType;
 import 'home_event.dart';
 import 'home_state.dart';
 

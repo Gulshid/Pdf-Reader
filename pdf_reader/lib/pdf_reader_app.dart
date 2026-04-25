@@ -25,14 +25,22 @@ class PdfReaderApp extends StatefulWidget {
 class _PdfReaderAppState extends State<PdfReaderApp>
     with WidgetsBindingObserver {
   late final _router = AppRouter.create();
-  bool _lockedOnResume = false;
+
+  // FIX: single flag that tracks whether the initial cold-start lock
+  // has already been shown. The old code used _lockedOnResume which was
+  // reset to false on every pause, so the `resumed` lifecycle event that
+  // Android fires right after a cold start triggered a SECOND lock screen.
+  bool _initialLockShown = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Show lock on cold start if enabled
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowLock());
+    // Show lock once on cold start
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _maybeShowLock();
+      _initialLockShown = true; // mark done — resume events may now trigger
+    });
   }
 
   @override
@@ -43,11 +51,11 @@ class _PdfReaderAppState extends State<PdfReaderApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !_lockedOnResume) {
-      _lockedOnResume = true;
+    // Only trigger on resume AFTER the initial cold-start lock was handled.
+    // This prevents the double-lock: cold-start fires postFrameCallback
+    // AND a resumed event almost simultaneously.
+    if (state == AppLifecycleState.resumed && _initialLockShown) {
       _maybeShowLock();
-    } else if (state == AppLifecycleState.paused) {
-      _lockedOnResume = false;
     }
   }
 

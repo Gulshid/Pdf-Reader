@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:pdf_reader/features/bookmarks/ui/bookmarks_screen.dart';
 import 'package:pdf_reader/features/converter/bloc/converter_bloc.dart';
 import 'package:pdf_reader/features/converter/bloc/converter_state.dart';
@@ -57,13 +56,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openExternalFile(String path) {
-    final ext = path.split('.').last.toUpperCase();
-    if (ext == 'PDF') {
-      final file = PdfFileModel.fromFile(File(path));
-      context.push(AppRouter.pdfViewer, extra: file);
-    } else {
-      OpenFilex.open(path);
-    }
+    // Open ALL file types inside the app — never use OpenFilex.open()
+    // as that re-launches the system "Open with" picker causing the loop.
+    final file = PdfFileModel.fromFile(File(path));
+    context.push(AppRouter.pdfViewer, extra: file);
   }
 
   @override

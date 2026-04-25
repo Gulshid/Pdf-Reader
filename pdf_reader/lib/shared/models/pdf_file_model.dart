@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:equatable/equatable.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
+
+enum FileType { pdf, txt, csv, xlsx, docx, pptx, image, unknown }
 
 class PdfFileModel extends Equatable {
   const PdfFileModel({
@@ -25,18 +28,38 @@ class PdfFileModel extends Equatable {
   final bool isBookmarked;
   final int lastOpenedPage;
 
+  // ── Computed getters ──────────────────────────────────────────────────────
+
   String get sizeFormatted {
     if (size < 1024) return '$size B';
     if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
     return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  String get dateFormatted =>
-      DateFormat('MMM dd, yyyy').format(lastModified);
+  String get dateFormatted => DateFormat('MMM dd, yyyy').format(lastModified);
 
   String get extension => name.split('.').last.toUpperCase();
 
   File get file => File(path);
+
+  /// Detects the file type from the file extension.
+  /// Used by the router to decide whether to open PdfViewerScreen
+  /// or ConverterScreen when a file is received from an external app.
+  FileType get fileType {
+    final ext = p.extension(name).toLowerCase();
+    return switch (ext) {
+      '.pdf'                      => FileType.pdf,
+      '.txt'                      => FileType.txt,
+      '.csv'                      => FileType.csv,
+      '.xlsx'                     => FileType.xlsx,
+      '.docx'                     => FileType.docx,
+      '.pptx'                     => FileType.pptx,
+      '.jpg' || '.jpeg' || '.png' => FileType.image,
+      _                           => FileType.unknown,
+    };
+  }
+
+  // ── copyWith ──────────────────────────────────────────────────────────────
 
   PdfFileModel copyWith({
     String? id,
@@ -61,6 +84,8 @@ class PdfFileModel extends Equatable {
       lastOpenedPage: lastOpenedPage ?? this.lastOpenedPage,
     );
   }
+
+  // ── Serialisation ─────────────────────────────────────────────────────────
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -93,6 +118,8 @@ class PdfFileModel extends Equatable {
         size: file.lengthSync(),
         lastModified: file.lastModifiedSync(),
       );
+
+  // ── Equatable ─────────────────────────────────────────────────────────────
 
   @override
   List<Object?> get props => [id, path, isBookmarked, lastOpenedPage];

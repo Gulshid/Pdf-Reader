@@ -6,6 +6,7 @@ import '../features/app_lock/ui/app_lock_settings_screen.dart';
 import '../features/bookmarks/ui/bookmarks_screen.dart';
 import '../features/converter/bloc/converter_bloc.dart';
 import '../features/converter/ui/converter_screen.dart';
+import '../features/file_viewer/ui/file_viewer_screen.dart';
 import '../features/home/ui/ home_screen.dart';
 import '../features/pdf_viewer/ui/pdf_viewer_screen.dart';
 import '../features/recent/ui/recent_screen.dart';
@@ -16,19 +17,24 @@ abstract class AppRouter {
   static const splash          = '/splash';
   static const home            = '/';
   static const pdfViewer       = '/pdf-viewer';
+  static const fileViewer      = '/file-viewer'; // ← new
   static const converter       = '/converter';
   static const recent          = '/recent';
   static const bookmarks       = '/bookmarks';
   static const appLockSettings = '/settings/app-lock';
 
+  static const _knownRoutes = [
+    splash, home, pdfViewer, fileViewer, converter, recent, bookmarks, appLockSettings,
+  ];
+
   static GoRouter create() => GoRouter(
         initialLocation: splash,
-
-        // ── KEY FIX: catch any unmatched URI (content://, file://, etc.)
-        // and redirect to home. The splash/home screens handle the actual
-        // file opening via IntentHandlerService.
-        errorBuilder: (context, state) => const HomeScreen(),
-
+        redirect: (context, state) {
+          final loc = state.uri.toString();
+          final isKnown = _knownRoutes.any((r) => loc == r || loc.startsWith('$r/'));
+          if (!isKnown) return splash;
+          return null;
+        },
         routes: [
           GoRoute(
             path: splash,
@@ -43,6 +49,14 @@ abstract class AppRouter {
             builder: (ctx, state) {
               final file = state.extra as PdfFileModel;
               return PdfViewerScreen(file: file);
+            },
+          ),
+          // Universal in-app viewer for all non-PDF formats
+          GoRoute(
+            path: fileViewer,
+            builder: (ctx, state) {
+              final file = state.extra as PdfFileModel;
+              return FileViewerScreen(file: file);
             },
           ),
           GoRoute(

@@ -14,6 +14,7 @@ void main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  
 
   // Init Hive
   await Hive.initFlutter();

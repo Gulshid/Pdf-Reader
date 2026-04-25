@@ -1,111 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- File permissions -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS"/>
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
-    <uses-permission android:name="android.permission.USE_FINGERPRINT"/>`
 
+    <!-- ── Permissions ──────────────────────────────────────────────────── -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Android 13+ granular storage permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Required to read files shared via content URIs on all SDK versions -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="PDF Reader Pro"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:requestLegacyExternalStorage="true">
+        android:requestLegacyExternalStorage="true"
+        android:allowBackup="false">
+
         <activity
-    android:name=".MainActivity"
-    android:exported="true"
-    android:launchMode="singleTask"
-    android:theme="@style/LaunchTheme"
-    android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-    android:hardwareAccelerated="true"
-    android:windowSoftInputMode="adjustResize">
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
 
-    <!-- Default launcher intent -->
-    <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-    </intent-filter>
+            <!-- ══ Flutter v2 embedding — REQUIRED, do NOT remove ══ -->
+            <meta-data
+                android:name="flutterEmbedding"
+                android:value="2" />
+            <!-- Meta-data for Flutter -->
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
 
-    <!-- Open PDF files -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="application/pdf"/>
-    </intent-filter>
+            <!-- ── 1. Default launcher ──────────────────────────────────── -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
 
-    <!-- Open DOCX / DOC -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="application/msword"/>
-        <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
-    </intent-filter>
+            <!-- ── 2. Open PDF files ────────────────────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- file:// URIs (legacy) -->
+                <data android:scheme="file"
+                    android:mimeType="application/pdf" />
+            </intent-filter>
 
-    <!-- Open XLSX / XLS -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="application/vnd.ms-excel"/>
-        <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
-    </intent-filter>
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- content:// URIs (modern — WhatsApp, Gmail, etc.) -->
+                <data android:scheme="content"
+                    android:mimeType="application/pdf" />
+            </intent-filter>
 
-    <!-- Open PPTX / PPT -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="application/vnd.ms-powerpoint"/>
-        <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/>
-    </intent-filter>
+            <!-- ── 3. Open DOCX files ────────────────────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content"
+                    android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            </intent-filter>
 
-    <!-- Open TXT -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="text/plain"/>
-    </intent-filter>
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file"
+                    android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            </intent-filter>
 
-    <!-- Open Images (JPG, PNG) -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="image/jpeg"/>
-        <data android:mimeType="image/png"/>
-    </intent-filter>
+            <!-- ── 4. Open XLSX files ────────────────────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content"
+                    android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </intent-filter>
 
-    <!-- Open CSV -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:mimeType="text/csv"/>
-        <data android:mimeType="text/comma-separated-values"/>
-    </intent-filter>
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file"
+                    android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </intent-filter>
 
-    <!-- Share sheet support (receive files sent via Share) -->
-    <intent-filter android:label="PDF Reader Pro">
-        <action android:name="android.intent.action.SEND"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <data android:mimeType="application/pdf"/>
-        <data android:mimeType="application/msword"/>
-        <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
-        <data android:mimeType="image/jpeg"/>
-        <data android:mimeType="image/png"/>
-    </intent-filter>
+            <!-- ── 5. Open PPTX files ────────────────────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content"
+                    android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+            </intent-filter>
 
-</activity>
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2"/>
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file"
+                    android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+            </intent-filter>
+
+            <!-- ── 6. Open TXT / plain-text files ───────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="text/plain" />
+            </intent-filter>
+
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- ── 7. Open CSV files ─────────────────────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="text/csv" />
+            </intent-filter>
+
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="text/comma-separated-values" />
+            </intent-filter>
+
+            <!-- ── 8. Open Image files ───────────────────────────────────── -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="image/jpeg" />
+            </intent-filter>
+
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="image/png" />
+            </intent-filter>
+
+            <!-- ── 9. Share (ACTION_SEND) — e.g. WhatsApp share sheet ───── -->
+            <!-- PDF -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <!-- DOCX -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            </intent-filter>
+            <!-- XLSX -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </intent-filter>
+            <!-- PPTX -->
+            <intent-filter android:name="android.intent.action.SEND"
+                android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+            </intent-filter>
+            <!-- Images -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <!-- Text / CSV -->
+            <intent-filter android:label="Open with PDF Reader Pro">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- FileProvider — required for Android 7+ to share file:// URIs -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 </manifest>

@@ -13,33 +13,24 @@ class FileUtils {
 
   static String generateId() => _uuid.v4();
 
-  /// Returns the output directory.
-  /// Android: app-internal Documents folder (no permission needed, ever)
-  /// iOS: app Documents directory
   static Future<Directory> getOutputDirectory() async {
-  Directory? dir;
+    Directory? dir;
 
-  if (Platform.isAndroid) {
-    // getExternalStorageDirectory() → /storage/emulated/0/Android/data/com.example.pdf_reader/files
-    // OpenFilex FileProvider can serve this path without extra config.
-    dir = await getExternalStorageDirectory();
-    if (dir != null) {
-      final out = Directory(p.join(dir.path, 'PdfReaderPro'));
-      if (!out.existsSync()) out.createSync(recursive: true);
-      print('📂 Output dir (external app): ${out.path}');
-      return out;
+    if (Platform.isAndroid) {
+      dir = await getExternalStorageDirectory();
+      if (dir != null) {
+        final out = Directory(p.join(dir.path, 'PdfReaderPro'));
+        if (!out.existsSync()) out.createSync(recursive: true);
+        return out;
+      }
     }
+
+    final docs = await getApplicationDocumentsDirectory();
+    final out = Directory(p.join(docs.path, 'PdfReaderPro'));
+    if (!out.existsSync()) out.createSync(recursive: true);
+    return out;
   }
 
-  // iOS or fallback
-  final docs = await getApplicationDocumentsDirectory();
-  final out = Directory(p.join(docs.path, 'PdfReaderPro'));
-  if (!out.existsSync()) out.createSync(recursive: true);
-  print('📂 Output dir (documents): ${out.path}');
-  return out;
-}
-
-  /// Sanitize a filename so it is safe for Android FileProvider and URIs.
   static String sanitizeFileName(String name) {
     return name.replaceAll(RegExp(r"""[#%&{}<>*?$!'"":@+`|=\\]"""), '_');
   }
@@ -51,12 +42,10 @@ class FileUtils {
     final outDir = await getOutputDirectory();
     final rawName = p.basenameWithoutExtension(sourceFilePath);
     final safeName = sanitizeFileName(rawName);
-    // Add timestamp to avoid overwriting previous conversions
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     return p.join(outDir.path, '${safeName}_$timestamp.${targetFormat.name}');
   }
 
-  /// Scan a directory for supported files
   static Future<List<PdfFileModel>> scanDirectory(Directory dir) async {
     const supported = {
       '.pdf', '.docx', '.txt', '.jpg', '.jpeg',
@@ -80,8 +69,14 @@ class FileUtils {
   static SupportedFormat? detectFormat(String path) {
     final ext = p.extension(path).toLowerCase().replaceFirst('.', '');
     try {
-      return SupportedFormat.values.firstWhere(
-        (f) => f.name == ext || (ext == 'jpeg' && f == SupportedFormat.jpg),
+      return SupportedFormat.values.firstWhere((f) =>
+        f.name == ext ||
+        // jpeg is the same as jpg
+        (ext == 'jpeg' && f == SupportedFormat.jpg)  ||
+        // Legacy Office formats → map to their modern OOXML equivalent
+        (ext == 'ppt'  && f == SupportedFormat.pptx) ||
+        (ext == 'doc'  && f == SupportedFormat.docx) ||
+        (ext == 'xls'  && f == SupportedFormat.xlsx),
       );
     } catch (_) {
       return null;

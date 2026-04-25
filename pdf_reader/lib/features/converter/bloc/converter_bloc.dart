@@ -6,7 +6,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../../../core/utils/conversion_service.dart';
 import '../../../core/utils/file_utils.dart';
-import '../../../shared/models/pdf_file_model.dart';
+import '../../../shared/models/pdf_file_model.dart' hide FileType;
 import '../../../shared/models/conversion_task_model.dart';
 import 'converter_event.dart';
 import 'converter_state.dart';

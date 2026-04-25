@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
-import 'package:open_filex/open_filex.dart';
 
 import '../../../core/services/intent_handler_service.dart';
 import '../../../routes/app_router.dart';
@@ -75,6 +75,21 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _runSequence() async {
+    final filePath = await IntentHandlerService.getInitialFilePath();
+
+    if (!mounted) return;
+
+    if (filePath != null) {
+      _openExternalFile(filePath);
+      return;
+    }
+
+    StreamSubscription<String?>? sub;
+    sub = IntentHandlerService.onNewFilePath.listen((path) {
+      sub?.cancel();
+      if (path != null && mounted) _openExternalFile(path);
+    });
+
     await _iconController.forward();
     await Future.delayed(const Duration(milliseconds: 100));
     _textController.forward();
@@ -82,34 +97,31 @@ class _SplashScreenState extends State<SplashScreen>
     await _progressController.forward();
     await Future.delayed(const Duration(milliseconds: 300));
 
-    if (!mounted) return;
-
-    // ── Check if launched from an external file intent ──────────────────────
-    final filePath = await IntentHandlerService.getInitialFilePath();
-    if (!mounted) return;
-
-    if (filePath != null) {
-      _openExternalFile(filePath);
-    } else {
-      context.go(AppRouter.home);
+    if (!mounted) {
+      sub.cancel();
+      return;
     }
+
+    sub.cancel();
+    context.go(AppRouter.home);
   }
 
+  /// Opens any file inside the app — no external apps, no loops.
+  ///
+  /// PDF  → PdfViewerScreen  (SfPdfViewer)
+  /// Everything else → FileViewerScreen  (txt/csv = text, xlsx = table,
+  ///                                      image = zoomable, docx/pptx = convert prompt)
   void _openExternalFile(String path) {
-    final ext = path.split('.').last.toUpperCase();
-    if (ext == 'PDF') {
-      final file = PdfFileModel.fromFile(File(path));
-      context.go(AppRouter.home);
-      // Small delay so HomeScreen is mounted before pushing viewer
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) context.push(AppRouter.pdfViewer, extra: file);
-      });
+    if (!mounted) return;
+    final file = PdfFileModel.fromFile(File(path));
+    final router = GoRouter.of(context);
+
+    router.go(AppRouter.home);
+
+    if (file.fileType == FileType.pdf) {
+      router.push(AppRouter.pdfViewer, extra: file);
     } else {
-      // Non-PDF: go home first, then open with system viewer
-      context.go(AppRouter.home);
-      Future.delayed(const Duration(milliseconds: 300), () {
-        OpenFilex.open(path);
-      });
+      router.push(AppRouter.fileViewer, extra: file);
     }
   }
 
