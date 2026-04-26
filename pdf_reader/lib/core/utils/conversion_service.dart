@@ -240,6 +240,7 @@ class ConversionService {
               archive.addFile(
                   ArchiveFile(name, pageImage.bytes.length, pageImage.bytes));
               onProgress(0.2 + 0.7 * pg / totalPages);
+              await Future.delayed(Duration.zero); // ← add this after each page
             }
             final zipBytes = ZipEncoder().encode(archive);
             if (zipBytes == null || zipBytes.isEmpty) {
@@ -296,6 +297,7 @@ class ConversionService {
         startPageIndex: i,
         endPageIndex: i,
       );
+
       if (pageText.trim().isNotEmpty) {
         final rawLines = pageText.split('\n');
         final rejoined = StringBuffer();
@@ -326,6 +328,7 @@ class ConversionService {
         buffer.write('\n\n');
       }
       onProgress(0.2 + 0.3 * (i + 1) / pageCount);
+      await Future.delayed(Duration.zero); // ← add this after each page
     }
 
     sfDoc.dispose();
@@ -360,6 +363,7 @@ class ConversionService {
         }
         await tmpFile.delete();
         onProgress(0.5 + 0.45 * i / pdfxDoc.pagesCount);
+         await Future.delayed(Duration.zero); // ← add this after each page
       }
     } finally {
       await pdfxDoc.close();
