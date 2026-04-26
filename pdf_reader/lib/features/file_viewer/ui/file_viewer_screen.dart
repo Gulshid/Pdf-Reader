@@ -10,7 +10,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
-import '../../../core/services/reading_progress_service.dart';
 import '../../../features/pdf_viewer/bloc/pdf_viewer_bloc.dart';
 import '../../../features/pdf_viewer/bloc/pdf_viewer_event.dart';
 import '../../../features/pdf_viewer/bloc/pdf_viewer_state.dart';
@@ -38,9 +37,38 @@ class FileViewerScreen extends StatelessWidget {
   const FileViewerScreen({super.key, required this.file});
   final PdfFileModel file;
 
+  /// Sniff the real type for files with no/unknown extension.
+  static FileType _sniffType(PdfFileModel file) {
+    final declared = file.fileType;
+    if (declared != FileType.unknown) return declared;
+    try {
+      final f = file.file;
+      if (!f.existsSync()) return FileType.unknown;
+      final len = f.lengthSync();
+      if (len < 4) return FileType.unknown;
+      final header = f.readAsBytesSync().sublist(0, 8.clamp(0, len));
+      // PDF
+      if (header[0] == 0x25 && header[1] == 0x50 &&
+          header[2] == 0x44 && header[3] == 0x46) return FileType.pdf;
+      // ZIP-based (DOCX/XLSX/PPTX)
+      if (header[0] == 0x50 && header[1] == 0x4B &&
+          header[2] == 0x03 && header[3] == 0x04) {
+        try {
+          final archive = ZipDecoder().decodeBytes(f.readAsBytesSync());
+          final names = archive.files.map((e) => e.name).toList();
+          if (names.any((n) => n.startsWith('word/'))) return FileType.docx;
+          if (names.any((n) => n.startsWith('xl/'))) return FileType.xlsx;
+          if (names.any((n) => n.startsWith('ppt/'))) return FileType.pptx;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return FileType.unknown;
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (file.fileType == FileType.pdf) {
+    final effectiveType = _sniffType(file);
+    if (effectiveType == FileType.pdf) {
       return BlocProvider(
         create: (_) => PdfViewerBloc()..add(PdfViewerLoadEvent(file.path)),
         child: _UnifiedScaffold(file: file),
@@ -67,11 +95,11 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
   static const _minFont = 10.0;
   static const _maxFont = 28.0;
 
-  bool get _isPdf => widget.file.fileType == FileType.pdf;
-  bool get _hasTextControls =>
-      widget.file.fileType == FileType.txt ||
-      widget.file.fileType == FileType.csv ||
-      widget.file.fileType == FileType.docx;
+  bool get _isPdf => _resolveFileType() == FileType.pdf;
+  bool get _hasTextControls {
+    final t = _resolveFileType();
+    return t == FileType.txt || t == FileType.csv || t == FileType.docx;
+  }
 
   @override
   void dispose() {
@@ -80,6 +108,11 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
   }
 
   void _showBookmarkSheet() {
+    // FIX: Guard — only try to read PdfViewerBloc if this is a PDF file.
+    // For non-PDF files, there is no BlocProvider<PdfViewerBloc> in the tree,
+    // so calling context.read<PdfViewerBloc>() would throw ProviderNotFoundException
+    // and freeze the screen. This was the main cause of the blank screen bug.
+    if (!_isPdf) return;
     final state = context.read<PdfViewerBloc>().state;
     showModalBottomSheet(
       context: context,
@@ -100,7 +133,7 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
     );
   }
 
-  String _subtitle() => switch (widget.file.fileType) {
+  String _subtitle() => switch (_resolveFileType()) {
         FileType.txt   => 'Text file',
         FileType.csv   => 'CSV file',
         FileType.xlsx  => 'Spreadsheet',
@@ -212,17 +245,66 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
     );
   }
 
-  Widget _buildBody() => switch (widget.file.fileType) {
-        FileType.pdf =>
-          _PdfBody(file: widget.file, controller: _pdfController),
-        FileType.txt || FileType.csv =>
-          _PlainTextBody(file: widget.file, fontSize: _fontSize),
-        FileType.xlsx  => _ExcelBody(file: widget.file),
-        FileType.docx  => _DocxBody(file: widget.file, fontSize: _fontSize),
-        FileType.pptx  => _PptxBody(file: widget.file),
-        FileType.image => _ImageBody(file: widget.file),
-        _              => _UnknownBody(file: widget.file),
-      };
+  /// Resolves the effective FileType — falls back to content sniffing
+  /// for files with no/wrong extension (e.g. WhatsApp: DOC-20260426-WA0002.docx
+  /// that arrives in cache with a truncated or missing extension).
+  FileType _resolveFileType() {
+    final declared = widget.file.fileType;
+    if (declared != FileType.unknown) return declared;
+    // Content sniffing: read first 8 bytes to detect magic
+    try {
+      final f = widget.file.file;
+      if (!f.existsSync()) return FileType.unknown;
+      final header = f.readAsBytesSync().sublist(0, 8.clamp(0, f.lengthSync()));
+      // ZIP magic (PK) — could be DOCX, XLSX, PPTX
+      if (header.length >= 4 &&
+          header[0] == 0x50 && header[1] == 0x4B &&
+          header[2] == 0x03 && header[3] == 0x04) {
+        // Peek inside ZIP to identify Office format
+        try {
+          final archive = ZipDecoder().decodeBytes(f.readAsBytesSync());
+          final names = archive.files.map((e) => e.name).toList();
+          if (names.any((n) => n.startsWith('word/'))) return FileType.docx;
+          if (names.any((n) => n.startsWith('xl/'))) return FileType.xlsx;
+          if (names.any((n) => n.startsWith('ppt/'))) return FileType.pptx;
+        } catch (_) {}
+        return FileType.unknown;
+      }
+      // PDF magic (%PDF)
+      if (header.length >= 4 &&
+          header[0] == 0x25 && header[1] == 0x50 &&
+          header[2] == 0x44 && header[3] == 0x46) {
+        return FileType.pdf;
+      }
+      // JPEG magic (FF D8 FF)
+      if (header.length >= 3 &&
+          header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) {
+        return FileType.image;
+      }
+      // PNG magic (89 50 4E 47)
+      if (header.length >= 4 &&
+          header[0] == 0x89 && header[1] == 0x50 &&
+          header[2] == 0x4E && header[3] == 0x47) {
+        return FileType.image;
+      }
+    } catch (_) {}
+    return FileType.unknown;
+  }
+
+  Widget _buildBody() {
+    final fileType = _resolveFileType();
+    return switch (fileType) {
+      FileType.pdf =>
+        _PdfBody(file: widget.file, controller: _pdfController),
+      FileType.txt || FileType.csv =>
+        _PlainTextBody(file: widget.file, fontSize: _fontSize),
+      FileType.xlsx  => _ExcelBody(file: widget.file),
+      FileType.docx  => _DocxBody(file: widget.file, fontSize: _fontSize),
+      FileType.pptx  => _PptxBody(file: widget.file),
+      FileType.image => _ImageBody(file: widget.file),
+      _              => _UnknownBody(file: widget.file),
+    };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -455,7 +537,26 @@ class _PlainTextBody extends StatefulWidget {
 }
 
 class _PlainTextBodyState extends State<_PlainTextBody> {
-  late final Future<String> _future = File(widget.file.path).readAsString();
+  // FIX: readAsString() throws a FormatException on non-UTF-8 encoded files
+  // (common for files created on Windows with Latin-1/CP1252 encoding, or
+  // CSV files exported from Excel with local encodings).
+  // Solution: read as bytes first, then try UTF-8, fall back to Latin-1.
+  late final Future<String> _future = _readText();
+
+  Future<String> _readText() async {
+    final bytes = await File(widget.file.path).readAsBytes();
+    if (bytes.isEmpty) return '(empty file)';
+    // Try UTF-8 first (strict)
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {}
+    // Fall back to Latin-1 — never throws, covers all single-byte encodings
+    try {
+      return latin1.decode(bytes);
+    } catch (_) {}
+    // Last resort: allow malformed UTF-8 (replaces bad bytes with replacement char)
+    return utf8.decode(bytes, allowMalformed: true);
+  }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<String>(
@@ -464,7 +565,7 @@ class _PlainTextBodyState extends State<_PlainTextBody> {
           if (snap.connectionState != ConnectionState.done) {
             return const _PageLoader();
           }
-          if (snap.hasError) return _PageError('${snap.error}');
+          if (snap.hasError) return _PageError('Cannot read file: ${snap.error}');
           return _PageScrollView(
             child: SelectableText(
               snap.data ?? '',
@@ -502,8 +603,12 @@ class _DocxBodyState extends State<_DocxBody> {
       (f) => f.name == 'word/document.xml',
       orElse: () => throw Exception('Not a valid DOCX file'),
     );
-    final xml =
-        utf8.decode(docFile.content as List<int>, allowMalformed: true);
+    // FIX: Safe cast for archive content
+    final rawContent = docFile.content;
+    final contentBytes = rawContent is List<int>
+        ? rawContent
+        : List<int>.from(rawContent as List);
+    final xml = utf8.decode(contentBytes, allowMalformed: true);
     final paras = <_Para>[];
 
     for (final m
@@ -521,18 +626,26 @@ class _DocxBodyState extends State<_DocxBody> {
           .toList();
       final isBold = runs.isNotEmpty &&
           runs.every((r) => r.contains('<w:b/>') || r.contains('<w:b '));
-      final text = RegExp(r'<w:t[^>]*>([^<]*)</w:t>')
+      // FIX: Use dotAll-safe extraction and unescape XML entities
+      final rawText = RegExp(r'<w:t[^>]*>(.*?)</w:t>', dotAll: true)
           .allMatches(px)
           .map((t) => t.group(1) ?? '')
           .join('');
+      final text = rawText
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .replaceAll('&quot;', '"')
+          .replaceAll('&apos;', "'");
       if (text.trim().isEmpty) continue;
 
       _ParaStyle style = _ParaStyle.body;
-      if (styleVal.contains('heading1') || styleVal == 'title') {
+      // FIX: Also match 'heading 1' (with space) — Word exports both styles
+      if (styleVal.contains('heading1') || styleVal.contains('heading 1') || styleVal == 'title') {
         style = _ParaStyle.h1;
-      } else if (styleVal.contains('heading2') || styleVal == 'subtitle') {
+      } else if (styleVal.contains('heading2') || styleVal.contains('heading 2') || styleVal == 'subtitle') {
         style = _ParaStyle.h2;
-      } else if (styleVal.contains('heading3')) {
+      } else if (styleVal.contains('heading3') || styleVal.contains('heading 3')) {
         style = _ParaStyle.h3;
       } else if (isBold && text.trim().length <= 80) {
         style = _ParaStyle.h2;
@@ -540,7 +653,7 @@ class _DocxBodyState extends State<_DocxBody> {
       paras.add(_Para(text: text, style: style));
     }
 
-    if (paras.isEmpty) throw Exception('No text found in this DOCX file');
+    if (paras.isEmpty) throw Exception('No readable text found in this DOCX file');
     return paras;
   }
 
@@ -769,12 +882,31 @@ class _PptxBodyState extends State<_PptxBody> {
     if (slideFiles.isEmpty) throw Exception('No slides found');
 
     return slideFiles.map((f) {
-      final xml =
-          utf8.decode(f.content as List<int>, allowMalformed: true);
-      final lines = RegExp(r'<a:t[^>]*>(.*?)<\/a:t>', dotAll: true)
+      // FIX: Safe cast — archive content can be List<dynamic> on some files
+      final rawContent = f.content;
+      final contentBytes = rawContent is List<int>
+          ? rawContent
+          : List<int>.from(rawContent as List);
+      final xml = utf8.decode(contentBytes, allowMalformed: true);
+      final lines = RegExp(r'<a:t[^>]*>(.*?)</a:t>', dotAll: true)
           .allMatches(xml)
-          .map((m) => m.group(1)?.trim() ?? '')
-          .where((t) => t.isNotEmpty)
+          .map((m) {
+            final raw = m.group(1) ?? '';
+            // FIX: Unescape XML entities so & < > render correctly
+            return raw
+                .replaceAll('&amp;', '&')
+                .replaceAll('&lt;', '<')
+                .replaceAll('&gt;', '>')
+                .replaceAll('&quot;', '"')
+                .replaceAll('&apos;', "'")
+                .trim();
+          })
+          .where((t) {
+            if (t.isEmpty) return false;
+            // FIX: Filter raw XML attribute fragments that leak through
+            if (RegExp(r'[a-z]:[a-zA-Z]+=').hasMatch(t)) return false;
+            return true;
+          })
           .toList();
       return lines.isEmpty ? <String>['(empty slide)'] : lines;
     }).toList();

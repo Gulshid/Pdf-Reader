@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -17,21 +18,16 @@ class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "pdf_reader/intent"
     private val EVENT_CHANNEL  = "pdf_reader/intent_event"
 
-    // Holds the URI string from the cold-start intent
     private var initialUri: String? = null
-
-    // EventChannel sink — set when Flutter starts listening
     private var eventSink: EventChannel.EventSink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Capture the URI that launched the app (cold start)
         initialUri = extractUri(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // App already running — forward to Flutter via EventChannel
         val uri = extractUri(intent) ?: return
         eventSink?.success(uri)
     }
@@ -39,16 +35,13 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // ── MethodChannel ────────────────────────────────────────────────────
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-
                     "getInitialUri" -> {
                         result.success(initialUri)
-                        initialUri = null   // consume once
+                        initialUri = null
                     }
-
                     "resolveContentUri" -> {
                         val uriStr = call.arguments as? String
                         if (uriStr == null) {
@@ -62,12 +55,10 @@ class MainActivity : FlutterActivity() {
                             result.error("RESOLVE_FAILED", e.message, null)
                         }
                     }
-
                     else -> result.notImplemented()
                 }
             }
 
-        // ── EventChannel ─────────────────────────────────────────────────────
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
@@ -79,43 +70,86 @@ class MainActivity : FlutterActivity() {
             })
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /** Extracts a URI string from any share / view intent. */
     private fun extractUri(intent: Intent?): String? {
         intent ?: return null
         if (intent.action != Intent.ACTION_VIEW &&
             intent.action != Intent.ACTION_SEND) return null
-
         val uri: Uri? = if (intent.action == Intent.ACTION_SEND) {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         } else {
             intent.data
         }
-
         return uri?.toString()
     }
 
     /**
-     * Copies a content:// URI to the app's cache directory and returns
-     * the absolute file path.  This is needed because most file pickers
-     * and share-sheets give us a content URI, not a direct file path.
+     * Maps a MIME type to the correct file extension.
+     * MimeTypeMap misses many common Office types, so we handle them explicitly.
+     */
+    private fun extensionForMimeType(mimeType: String?): String? {
+        if (mimeType == null) return null
+        return when (mimeType) {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"   -> "docx"
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"         -> "xlsx"
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
+            "application/msword"        -> "doc"
+            "application/vnd.ms-excel"  -> "xls"
+            "application/vnd.ms-powerpoint" -> "ppt"
+            "application/pdf"           -> "pdf"
+            "text/plain"                -> "txt"
+            "text/csv", "text/comma-separated-values" -> "csv"
+            "image/jpeg"                -> "jpg"
+            "image/png"                 -> "png"
+            else -> MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+        }
+    }
+
+    /**
+     * Copies a content:// URI to cache and returns the absolute path.
+     *
+     * FIX: WhatsApp strips extensions from shared files (e.g. sends
+     * "DOC-20260426-WA0002" instead of "DOC-20260426-WA0002.docx").
+     * We recover the correct extension from the MIME type reported by
+     * the content resolver, which is always accurate even when the
+     * display name is wrong.
      */
     private fun copyContentUriToCache(uri: Uri): String {
         val cr: ContentResolver = contentResolver
 
-        // Try to get the real file name from the URI
-        var fileName = "shared_file"
+        var rawName = "shared_file"
         cr.query(uri, null, null, null, null)?.use { cursor ->
             val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (nameIdx >= 0 && cursor.moveToFirst()) {
-                fileName = cursor.getString(nameIdx) ?: fileName
+                rawName = cursor.getString(nameIdx) ?: rawName
             }
         }
 
-        // Sanitise the name
-        fileName = fileName.replace(Regex("[^a-zA-Z0-9._\\-]"), "_")
+        // Get MIME type — this is always correct even when the name is wrong
+        val mimeType: String? = cr.getType(uri)
+
+        // Split name into base and extension
+        val lastDot = rawName.lastIndexOf('.')
+        // hasExtension = dot exists AND there are characters after it
+        val hasExtension = lastDot >= 0 && lastDot < rawName.length - 1
+
+        val baseName: String
+        val extension: String
+
+        if (hasExtension) {
+            // Trust the declared extension (e.g. "lecture_9.xlsx" -> ext = "xlsx")
+            baseName = rawName.substring(0, lastDot)
+            extension = rawName.substring(lastDot + 1)
+        } else {
+            // No extension or trailing dot (e.g. "DOC-20260426-WA0002" or "DOC-20260426-WA0002.")
+            // Recover from MIME type
+            baseName = if (lastDot >= 0) rawName.substring(0, lastDot) else rawName
+            extension = extensionForMimeType(mimeType) ?: "bin"
+        }
+
+        // Sanitise the base name only — keep the extension clean
+        val safeBase = baseName.replace(Regex("[^a-zA-Z0-9._\\-]"), "_")
+        val fileName = "$safeBase.$extension"
 
         val outFile = File(cacheDir, fileName)
         cr.openInputStream(uri)?.use { input ->

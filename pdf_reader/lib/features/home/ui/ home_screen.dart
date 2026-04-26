@@ -14,6 +14,7 @@ import 'package:pdf_reader/features/recent/bloc/recent_bloc.dart';
 import 'package:pdf_reader/features/recent/bloc/recent_event.dart';
 import 'package:pdf_reader/shared/models/pdf_file_model.dart';
 
+
 import '../../../core/services/intent_handler_service.dart';
 import '../../../core/theme/theme_cubit.dart';
 import '../../../routes/app_router.dart';
@@ -57,7 +58,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openExternalFile(String path) {
     final file = PdfFileModel.fromFile(File(path));
-    context.push(AppRouter.fileViewer, extra: file);
+    // FIX: Route PDFs to PdfViewerScreen and everything else to FileViewerScreen.
+    // The old code always pushed fileViewer, which caused PDFs opened from external
+    // apps (WhatsApp, Gmail, Files) to go to FileViewerScreen without the correct
+    // BlocProvider setup, resulting in a blank/frozen screen.
+    if (file.fileType == FileType.pdf) {
+      context.push(AppRouter.pdfViewer, extra: file);
+    } else {
+      context.push(AppRouter.fileViewer, extra: file);
+    }
   }
 
   @override

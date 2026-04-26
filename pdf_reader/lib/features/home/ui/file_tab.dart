@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:pdf_reader/features/home/bloc/home_event.dart';
 import 'package:pdf_reader/features/home/bloc/home_state.dart';
 import 'package:pdf_reader/features/home/ui/widgets/empty_state.dart';
-import '../../../../shared/models/pdf_file_model.dart' show FileType;
 
 import '../../../../routes/app_router.dart';
 import '../../../shared/models/pdf_file_model.dart';
