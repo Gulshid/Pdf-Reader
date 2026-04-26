@@ -17,7 +17,7 @@ abstract class AppRouter {
   static const splash          = '/splash';
   static const home            = '/';
   static const pdfViewer       = '/pdf-viewer';
-  static const fileViewer      = '/file-viewer'; // ← new
+  static const fileViewer      = '/file-viewer';
   static const converter       = '/converter';
   static const recent          = '/recent';
   static const bookmarks       = '/bookmarks';
@@ -27,12 +27,25 @@ abstract class AppRouter {
     splash, home, pdfViewer, fileViewer, converter, recent, bookmarks, appLockSettings,
   ];
 
+  /// Set to true by SplashScreen once it has finished (navigated away).
+  /// After that, any attempt to reach /splash is redirected to home.
+  static bool splashDone = false;
+
   static GoRouter create() => GoRouter(
         initialLocation: splash,
         redirect: (context, state) {
           final loc = state.uri.toString();
+
+          // Once splash is done, never allow going back to it.
+          // This covers: hardware back button, system back gesture,
+          // and any push/go call that somehow targets /splash.
+          if (splashDone && loc == splash) return home;
+
+          // Unknown route → home (not splash, to avoid triggering
+          // the splash sequence again).
           final isKnown = _knownRoutes.any((r) => loc == r || loc.startsWith('$r/'));
-          if (!isKnown) return splash;
+          if (!isKnown) return home;
+
           return null;
         },
         routes: [
@@ -51,7 +64,6 @@ abstract class AppRouter {
               return PdfViewerScreen(file: file);
             },
           ),
-          // Universal in-app viewer for all non-PDF formats
           GoRoute(
             path: fileViewer,
             builder: (ctx, state) {

@@ -29,6 +29,10 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<Offset> _textSlide;
   late final Animation<double> _progressWidth;
 
+  /// Stays false while we check for an external-file intent.
+  /// Prevents any splash UI from flashing when the app is opened via a file.
+  bool _showSplash = false;
+
   @override
   void initState() {
     super.initState();
@@ -79,15 +83,21 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
+    // ── Opened via external file (cold-start intent) ──────────────────────
     if (resolvedFile != null) {
-      _openExternalFile(resolvedFile.path, resolvedFile.displayName);
+      _leaveSplash(() => _openExternalFile(resolvedFile.path, resolvedFile.displayName));
       return;
     }
+
+    // ── Normal launch — reveal splash UI and run animations ───────────────
+    if (mounted) setState(() => _showSplash = true);
 
     StreamSubscription<ResolvedFile?>? sub;
     sub = IntentHandlerService.onNewFile.listen((resolved) {
       sub?.cancel();
-      if (resolved != null && mounted) _openExternalFile(resolved.path, resolved.displayName);
+      if (resolved != null && mounted) {
+        _leaveSplash(() => _openExternalFile(resolved.path, resolved.displayName));
+      }
     });
 
     await _iconController.forward();
@@ -103,25 +113,24 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     sub.cancel();
-    context.go(AppRouter.home);
+    _leaveSplash(() => context.go(AppRouter.home));
   }
 
-  /// Opens any file inside the app — no external apps, no loops.
-  ///
-  /// PDF  → PdfViewerScreen  (SfPdfViewer)
-  /// Everything else → FileViewerScreen  (txt/csv = text, xlsx = table,
-  ///                                      image = zoomable, docx/pptx = convert prompt)
+  /// Marks splash as done (so the router redirect blocks it forever),
+  /// then calls [navigate] to actually move away.
+  void _leaveSplash(VoidCallback navigate) {
+    AppRouter.splashDone = true;
+    navigate();
+  }
+
   void _openExternalFile(String path, String displayName) {
     if (!mounted) return;
     final file = PdfFileModel.fromFile(File(path), displayName: displayName);
-    final router = GoRouter.of(context);
-
-    router.go(AppRouter.home);
 
     if (file.fileType == FileType.pdf) {
-      router.push(AppRouter.pdfViewer, extra: file);
+      context.go(AppRouter.pdfViewer, extra: file);
     } else {
-      router.push(AppRouter.fileViewer, extra: file);
+      context.go(AppRouter.fileViewer, extra: file);
     }
   }
 
@@ -137,10 +146,14 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = isDark ? const Color(0xFF5A8FBF) : const Color(0xFF1F2D3D);
-    final bg = isDark ? const Color(0xFF080A0C) : const Color(0xFFF2F3F5);
-    final onBg = isDark ? const Color(0xFFE8EAED) : const Color(0xFF0A0C0F);
-    final subtle =
-        isDark ? const Color(0xFF1C232B) : const Color(0xFFDDE1E7);
+    final bg      = isDark ? const Color(0xFF080A0C) : const Color(0xFFF2F3F5);
+    final onBg    = isDark ? const Color(0xFFE8EAED) : const Color(0xFF0A0C0F);
+    final subtle  = isDark ? const Color(0xFF1C232B) : const Color(0xFFDDE1E7);
+
+    // Blank screen while checking for intent — same bg colour, zero flash.
+    if (!_showSplash) {
+      return Scaffold(backgroundColor: bg);
+    }
 
     return Scaffold(
       backgroundColor: bg,
