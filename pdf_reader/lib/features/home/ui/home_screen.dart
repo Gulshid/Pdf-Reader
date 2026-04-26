@@ -32,7 +32,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
-  StreamSubscription<String?>? _intentSub;
+  StreamSubscription<ResolvedFile?>? _intentSub;
 
   final List<Widget> _tabs = const [
     FilesTab(),
@@ -45,8 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     // Listen for files shared/opened while app is already running
-    _intentSub = IntentHandlerService.onNewFilePath.listen((path) {
-      if (path != null && mounted) _openExternalFile(path);
+    _intentSub = IntentHandlerService.onNewFile.listen((resolved) {
+      if (resolved != null && mounted) _openExternalFile(resolved.path, resolved.displayName);
     });
   }
 
@@ -56,12 +56,8 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _openExternalFile(String path) {
-    final file = PdfFileModel.fromFile(File(path));
-    // FIX: Route PDFs to PdfViewerScreen and everything else to FileViewerScreen.
-    // The old code always pushed fileViewer, which caused PDFs opened from external
-    // apps (WhatsApp, Gmail, Files) to go to FileViewerScreen without the correct
-    // BlocProvider setup, resulting in a blank/frozen screen.
+  void _openExternalFile(String path, String displayName) {
+    final file = PdfFileModel.fromFile(File(path), displayName: displayName);
     if (file.fileType == FileType.pdf) {
       context.push(AppRouter.pdfViewer, extra: file);
     } else {

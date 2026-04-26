@@ -38,10 +38,16 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+
                     "getInitialUri" -> {
                         result.success(initialUri)
                         initialUri = null
                     }
+
+                    // FIX: Now returns a Map { "path": String, "displayName": String }
+                    // instead of just a plain String path.
+                    // This lets Flutter show the ORIGINAL file name (e.g. "lecture 9.xlsx")
+                    // even though the cached file is named "DOC_20260426_WA0001.xlsx".
                     "resolveContentUri" -> {
                         val uriStr = call.arguments as? String
                         if (uriStr == null) {
@@ -50,11 +56,16 @@ class MainActivity : FlutterActivity() {
                         }
                         try {
                             val resolved = copyContentUriToCache(Uri.parse(uriStr))
-                            result.success(resolved)
+                            // Return map with both the cache path AND the original display name
+                            result.success(mapOf(
+                                "path"        to resolved.first,
+                                "displayName" to resolved.second
+                            ))
                         } catch (e: Exception) {
                             result.error("RESOLVE_FAILED", e.message, null)
                         }
                     }
+
                     else -> result.notImplemented()
                 }
             }
@@ -93,71 +104,75 @@ class MainActivity : FlutterActivity() {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"   -> "docx"
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"         -> "xlsx"
             "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
-            "application/msword"        -> "doc"
-            "application/vnd.ms-excel"  -> "xls"
-            "application/vnd.ms-powerpoint" -> "ppt"
-            "application/pdf"           -> "pdf"
-            "text/plain"                -> "txt"
+            "application/msword"                     -> "doc"
+            "application/vnd.ms-excel"               -> "xls"
+            "application/vnd.ms-powerpoint"          -> "ppt"
+            "application/pdf"                        -> "pdf"
+            "text/plain"                             -> "txt"
             "text/csv", "text/comma-separated-values" -> "csv"
-            "image/jpeg"                -> "jpg"
-            "image/png"                 -> "png"
+            "image/jpeg"                             -> "jpg"
+            "image/png"                              -> "png"
             else -> MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
         }
     }
 
     /**
-     * Copies a content:// URI to cache and returns the absolute path.
+     * Copies a content:// URI to cache.
+     * Returns a Pair of (absoluteCachePath, originalDisplayName).
      *
-     * FIX: WhatsApp strips extensions from shared files (e.g. sends
-     * "DOC-20260426-WA0002" instead of "DOC-20260426-WA0002.docx").
-     * We recover the correct extension from the MIME type reported by
-     * the content resolver, which is always accurate even when the
-     * display name is wrong.
+     * The cache path is used to READ the file.
+     * The displayName is the ORIGINAL name (e.g. "lecture 9_177.xlsx") which
+     * Flutter uses for display — so the user never sees "DOC-20260426-WA0001".
      */
-    private fun copyContentUriToCache(uri: Uri): String {
+    private fun copyContentUriToCache(uri: Uri): Pair<String, String> {
         val cr: ContentResolver = contentResolver
 
-        var rawName = "shared_file"
+        // Step 1: Get the original display name from the content resolver
+        var originalDisplayName = ""
         cr.query(uri, null, null, null, null)?.use { cursor ->
             val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (nameIdx >= 0 && cursor.moveToFirst()) {
-                rawName = cursor.getString(nameIdx) ?: rawName
+                originalDisplayName = cursor.getString(nameIdx) ?: ""
             }
         }
 
-        // Get MIME type — this is always correct even when the name is wrong
+        // Step 2: Get MIME type — always correct even when the name is wrong
         val mimeType: String? = cr.getType(uri)
 
-        // Split name into base and extension
-        val lastDot = rawName.lastIndexOf('.')
-        // hasExtension = dot exists AND there are characters after it
-        val hasExtension = lastDot >= 0 && lastDot < rawName.length - 1
+        // Step 3: Determine the correct extension from the display name or MIME type
+        val lastDot = originalDisplayName.lastIndexOf('.')
+        val hasExtension = lastDot >= 0 && lastDot < originalDisplayName.length - 1
 
         val baseName: String
         val extension: String
 
         if (hasExtension) {
-            // Trust the declared extension (e.g. "lecture_9.xlsx" -> ext = "xlsx")
-            baseName = rawName.substring(0, lastDot)
-            extension = rawName.substring(lastDot + 1)
+            baseName = originalDisplayName.substring(0, lastDot)
+            extension = originalDisplayName.substring(lastDot + 1)
         } else {
-            // No extension or trailing dot (e.g. "DOC-20260426-WA0002" or "DOC-20260426-WA0002.")
-            // Recover from MIME type
-            baseName = if (lastDot >= 0) rawName.substring(0, lastDot) else rawName
+            // WhatsApp strips extension — recover from MIME type
+            baseName = if (lastDot >= 0) originalDisplayName.substring(0, lastDot)
+                       else originalDisplayName.ifEmpty { "shared_file" }
             extension = extensionForMimeType(mimeType) ?: "bin"
         }
 
-        // Sanitise the base name only — keep the extension clean
-        val safeBase = baseName.replace(Regex("[^a-zA-Z0-9._\\-]"), "_")
-        val fileName = "$safeBase.$extension"
+        // Step 4: Build the FINAL display name with guaranteed correct extension
+        // This is what Flutter will show the user.
+        val finalDisplayName = if (hasExtension) originalDisplayName
+                               else "$baseName.$extension"
 
-        val outFile = File(cacheDir, fileName)
+        // Step 5: Sanitise for the filesystem (cache file name)
+        val safeBase = baseName.replace(Regex("[^a-zA-Z0-9._\\-]"), "_")
+        val cacheFileName = "$safeBase.$extension"
+
+        // Step 6: Copy to cache
+        val outFile = File(cacheDir, cacheFileName)
         cr.openInputStream(uri)?.use { input ->
             FileOutputStream(outFile).use { output ->
                 input.copyTo(output)
             }
         } ?: throw Exception("Cannot open input stream for URI: $uri")
 
-        return outFile.absolutePath
+        return Pair(outFile.absolutePath, finalDisplayName)
     }
 }

@@ -75,19 +75,19 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _runSequence() async {
-    final filePath = await IntentHandlerService.getInitialFilePath();
+    final resolvedFile = await IntentHandlerService.getInitialFile();
 
     if (!mounted) return;
 
-    if (filePath != null) {
-      _openExternalFile(filePath);
+    if (resolvedFile != null) {
+      _openExternalFile(resolvedFile.path, resolvedFile.displayName);
       return;
     }
 
-    StreamSubscription<String?>? sub;
-    sub = IntentHandlerService.onNewFilePath.listen((path) {
+    StreamSubscription<ResolvedFile?>? sub;
+    sub = IntentHandlerService.onNewFile.listen((resolved) {
       sub?.cancel();
-      if (path != null && mounted) _openExternalFile(path);
+      if (resolved != null && mounted) _openExternalFile(resolved.path, resolved.displayName);
     });
 
     await _iconController.forward();
@@ -98,7 +98,7 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 300));
 
     if (!mounted) {
-      sub.cancel();
+      await sub.cancel();
       return;
     }
 
@@ -111,9 +111,9 @@ class _SplashScreenState extends State<SplashScreen>
   /// PDF  → PdfViewerScreen  (SfPdfViewer)
   /// Everything else → FileViewerScreen  (txt/csv = text, xlsx = table,
   ///                                      image = zoomable, docx/pptx = convert prompt)
-  void _openExternalFile(String path) {
+  void _openExternalFile(String path, String displayName) {
     if (!mounted) return;
-    final file = PdfFileModel.fromFile(File(path));
+    final file = PdfFileModel.fromFile(File(path), displayName: displayName);
     final router = GoRouter.of(context);
 
     router.go(AppRouter.home);

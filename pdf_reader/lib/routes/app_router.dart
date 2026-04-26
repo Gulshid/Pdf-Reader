@@ -7,7 +7,7 @@ import '../features/bookmarks/ui/bookmarks_screen.dart';
 import '../features/converter/bloc/converter_bloc.dart';
 import '../features/converter/ui/converter_screen.dart';
 import '../features/file_viewer/ui/file_viewer_screen.dart';
-import '../features/home/ui/ home_screen.dart';
+import '../features/home/ui/home_screen.dart';
 import '../features/pdf_viewer/ui/pdf_viewer_screen.dart';
 import '../features/recent/ui/recent_screen.dart';
 import '../features/splash/ui/splash_screen.dart';

@@ -111,9 +111,15 @@ class PdfFileModel extends Equatable {
         lastOpenedPage: json['lastOpenedPage'] as int? ?? 0,
       );
 
-  factory PdfFileModel.fromFile(File file) => PdfFileModel(
+  /// Creates a model from a [File].
+  ///
+  /// [displayName] — pass the original filename when the file was received
+  /// from an external app (e.g. WhatsApp), where the cached copy has an
+  /// auto-generated name like "DOC_20260426_WA0001.docx".
+  /// If omitted, the name is taken from the file path as before.
+  factory PdfFileModel.fromFile(File file, {String? displayName}) => PdfFileModel(
         id: file.path.hashCode.toString(),
-        name: file.path.split('/').last,
+        name: displayName ?? file.path.split('/').last,
         path: file.path,
         size: file.lengthSync(),
         lastModified: file.lastModifiedSync(),
