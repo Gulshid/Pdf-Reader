@@ -26,20 +26,21 @@ class _PdfReaderAppState extends State<PdfReaderApp>
     with WidgetsBindingObserver {
   late final _router = AppRouter.create();
 
-  // FIX: single flag that tracks whether the initial cold-start lock
-  // has already been shown. The old code used _lockedOnResume which was
-  // reset to false on every pause, so the `resumed` lifecycle event that
-  // Android fires right after a cold start triggered a SECOND lock screen.
   bool _initialLockShown = false;
+  static bool _lockIsShowing = false;
+
+  /// True only after the app has genuinely gone to background (paused)
+  /// AFTER the lock was last dismissed. This prevents the `resumed` event
+  /// that fires after biometric/PIN unlock from immediately re-locking.
+  bool _wentToBackgroundAfterUnlock = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Show lock once on cold start
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _maybeShowLock();
-      _initialLockShown = true; // mark done — resume events may now trigger
+      _initialLockShown = true;
     });
   }
 
@@ -51,19 +52,36 @@ class _PdfReaderAppState extends State<PdfReaderApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Only trigger on resume AFTER the initial cold-start lock was handled.
-    // This prevents the double-lock: cold-start fires postFrameCallback
-    // AND a resumed event almost simultaneously.
-    if (state == AppLifecycleState.resumed && _initialLockShown) {
-      _maybeShowLock();
+    if (!_initialLockShown) return;
+
+    if (state == AppLifecycleState.paused && !_lockIsShowing) {
+      // App genuinely went to background while unlocked.
+      // Now we are allowed to lock on next resume.
+      _wentToBackgroundAfterUnlock = true;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      if (_lockIsShowing) return; // biometric dialog — ignore
+
+      if (_wentToBackgroundAfterUnlock) {
+        _wentToBackgroundAfterUnlock = false;
+        _maybeShowLock();
+      }
     }
   }
 
   Future<void> _maybeShowLock() async {
     if (!AppLockService.isEnabled) return;
-    final ctx = _router.routerDelegate.navigatorKey.currentContext;
-    if (ctx == null || !ctx.mounted) return;
-    await AppLockGate.show(ctx);
+    if (_lockIsShowing) return;
+    _lockIsShowing = true;
+
+    try {
+      final ctx = _router.routerDelegate.navigatorKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      await AppLockGate.show(ctx);
+    } finally {
+      _lockIsShowing = false;
+    }
   }
 
   @override

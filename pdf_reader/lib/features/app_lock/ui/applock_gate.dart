@@ -7,6 +7,7 @@ class AppLockGate extends StatefulWidget {
   const AppLockGate({super.key});
 
   static Future<void> show(BuildContext context) {
+    debugPrint('[GATE] show() called — pushing route');
     return Navigator.of(context, rootNavigator: true).push(
       PageRouteBuilder(
         opaque: true,
@@ -25,56 +26,67 @@ class AppLockGate extends StatefulWidget {
 class _AppLockGateState extends State<AppLockGate> {
   final _pinController = TextEditingController();
   String? _error;
-  bool _authenticating = false;
+  bool _biometricInProgress = false;
   bool _biometricAvailable = false;
+  bool _authenticated = false;
 
   @override
   void initState() {
     super.initState();
-    // Only check if biometric is available — do NOT auto-trigger the prompt.
-    // The user must tap the button themselves.
+    debugPrint('[GATE] initState');
     _checkBiometricAvailability();
   }
 
   @override
   void dispose() {
+    debugPrint('[GATE] dispose');
     _pinController.dispose();
     super.dispose();
   }
 
   Future<void> _checkBiometricAvailability() async {
     final available = await AppLockService.isBiometricAvailable;
+    debugPrint('[GATE] biometricAvailable=$available');
     if (!mounted) return;
     setState(() => _biometricAvailable = available);
-    // ← NO auto-call to _tryBiometric() here anymore
+  }
+
+  void _unlock() {
+    debugPrint('[GATE] _unlock called | mounted=$mounted | _authenticated=$_authenticated');
+    if (!mounted) return;
+    setState(() => _authenticated = true);
+    debugPrint('[GATE] _authenticated set to true — scheduling pop');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('[GATE] postFrameCallback — mounted=$mounted, calling pop');
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   Future<void> _tryBiometric() async {
-    // Guard: if already authenticating, do nothing — prevents repeat dialogs
-    if (_authenticating) return;
+    debugPrint('[GATE] _tryBiometric called | _biometricInProgress=$_biometricInProgress');
+    if (_biometricInProgress) return;
 
     setState(() {
-      _authenticating = true;
+      _biometricInProgress = true;
       _error = null;
     });
 
+    debugPrint('[GATE] calling AppLockService.authenticateWithBiometrics()');
     final ok = await AppLockService.authenticateWithBiometrics();
+    debugPrint('[GATE] authenticateWithBiometrics returned: $ok | mounted=$mounted');
 
     if (!mounted) return;
+    setState(() => _biometricInProgress = false);
 
-    if (ok) {
-      Navigator.of(context).pop();
-      return;
-    }
-
-    // Auth failed or cancelled — reset state, let user try again manually
-    setState(() => _authenticating = false);
+    if (ok) _unlock();
   }
 
   void _submitPin() {
     final entered = _pinController.text.trim();
+    debugPrint('[GATE] _submitPin | entered.length=${entered.length}');
     if (AppLockService.verifyPin(entered)) {
-      Navigator.of(context).pop();
+      debugPrint('[GATE] PIN correct — calling _unlock');
+      _unlock();
     } else {
       setState(() {
         _error = 'Incorrect PIN. Try again.';
@@ -89,7 +101,10 @@ class _AppLockGateState extends State<AppLockGate> {
     final cs = theme.colorScheme;
 
     return PopScope(
-      canPop: false, // prevent back-button bypass
+      canPop: _authenticated,
+      onPopInvokedWithResult: (didPop, result) {
+        debugPrint('[GATE] PopScope.onPopInvokedWithResult: didPop=$didPop _authenticated=$_authenticated');
+      },
       child: Scaffold(
         backgroundColor: cs.surface,
         body: SafeArea(
@@ -115,14 +130,13 @@ class _AppLockGateState extends State<AppLockGate> {
                   ),
                   SizedBox(height: 32.h),
 
-                  // PIN field — autofocus always (no biometric auto-popup stealing focus)
                   TextField(
                     controller: _pinController,
                     keyboardType: TextInputType.number,
                     obscureText: true,
                     maxLength: 6,
                     textAlign: TextAlign.center,
-                    autofocus: true,
+                    autofocus: !_biometricAvailable,
                     decoration: InputDecoration(
                       labelText: 'PIN',
                       counterText: '',
@@ -136,30 +150,33 @@ class _AppLockGateState extends State<AppLockGate> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: _authenticating ? null : _submitPin,
+                      onPressed: _submitPin,
                       icon: const Icon(Icons.check_rounded),
                       label: const Text('Unlock with PIN'),
                     ),
                   ),
 
-                  // Biometric button — only shown when available, only triggers on tap
                   if (_biometricAvailable) ...[
                     SizedBox(height: 12.h),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: _authenticating ? null : _tryBiometric,
-                        icon: _authenticating
+                        onPressed: _biometricInProgress ? null : _tryBiometric,
+                        icon: _biometricInProgress
                             ? SizedBox(
                                 width: 18.w,
                                 height: 18.w,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: cs.primary),
+                                  strokeWidth: 2,
+                                  color: cs.primary,
+                                ),
                               )
                             : const Icon(Icons.fingerprint_rounded),
-                        label: Text(_authenticating
-                            ? 'Waiting for biometric…'
-                            : 'Use fingerprint / Face ID'),
+                        label: Text(
+                          _biometricInProgress
+                              ? 'Waiting for biometric…'
+                              : 'Use fingerprint / Face ID',
+                        ),
                       ),
                     ),
                   ],
