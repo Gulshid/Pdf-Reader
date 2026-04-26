@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element_parameter
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,27 +19,10 @@ import '../../../features/pdf_viewer/ui/widgets/bookmark_sheet.dart';
 import '../../../features/pdf_viewer/ui/widgets/viewer_controls.dart';
 import '../../../shared/models/pdf_file_model.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FileViewerScreen — ONE screen, ONE AppBar, every file type.
-//
-// Visual rule: every format uses the same PDF-style chrome:
-//   • Black scaffold background
-//   • White page card(s) with drop-shadow floating on the black
-//   • Same AppBar, same loader (_PageLoader), same error (_PageError)
-//
-// The two shared building blocks used by EVERY non-PDF format:
-//   _PageCard       — white rectangle with shadow
-//   _PageScrollView — Scrollbar > SingleChildScrollView > _PageCard
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Entry point
-// ══════════════════════════════════════════════════════════════════════════════
 class FileViewerScreen extends StatelessWidget {
   const FileViewerScreen({super.key, required this.file});
   final PdfFileModel file;
 
-  /// Sniff the real type for files with no/unknown extension.
   static FileType _sniffType(PdfFileModel file) {
     final declared = file.fileType;
     if (declared != FileType.unknown) return declared;
@@ -47,12 +32,8 @@ class FileViewerScreen extends StatelessWidget {
       final len = f.lengthSync();
       if (len < 4) return FileType.unknown;
       final header = f.readAsBytesSync().sublist(0, 8.clamp(0, len));
-      // PDF
-      if (header[0] == 0x25 && header[1] == 0x50 &&
-          header[2] == 0x44 && header[3] == 0x46) return FileType.pdf;
-      // ZIP-based (DOCX/XLSX/PPTX)
-      if (header[0] == 0x50 && header[1] == 0x4B &&
-          header[2] == 0x03 && header[3] == 0x04) {
+      if (header[0] == 0x25 && header[1] == 0x50 && header[2] == 0x44 && header[3] == 0x46) return FileType.pdf;
+      if (header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04) {
         try {
           final archive = ZipDecoder().decodeBytes(f.readAsBytesSync());
           final names = archive.files.map((e) => e.name).toList();
@@ -79,21 +60,44 @@ class FileViewerScreen extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Scaffold — identical for every format
+// Scaffold
 // ══════════════════════════════════════════════════════════════════════════════
 class _UnifiedScaffold extends StatefulWidget {
   const _UnifiedScaffold({required this.file});
   final PdfFileModel file;
-
   @override
   State<_UnifiedScaffold> createState() => _UnifiedScaffoldState();
 }
 
 class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
   final _pdfController = PdfViewerController();
-  double _fontSize = 14.0;
+  double _fontSize = 15.0;
   static const _minFont = 10.0;
-  static const _maxFont = 28.0;
+  static const _maxFont = 30.0;
+
+  FileType _resolveFileType() {
+    final declared = widget.file.fileType;
+    if (declared != FileType.unknown) return declared;
+    try {
+      final f = widget.file.file;
+      if (!f.existsSync()) return FileType.unknown;
+      final header = f.readAsBytesSync().sublist(0, 8.clamp(0, f.lengthSync()));
+      if (header.length >= 4 && header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04) {
+        try {
+          final archive = ZipDecoder().decodeBytes(f.readAsBytesSync());
+          final names = archive.files.map((e) => e.name).toList();
+          if (names.any((n) => n.startsWith('word/'))) return FileType.docx;
+          if (names.any((n) => n.startsWith('xl/'))) return FileType.xlsx;
+          if (names.any((n) => n.startsWith('ppt/'))) return FileType.pptx;
+        } catch (_) {}
+        return FileType.unknown;
+      }
+      if (header.length >= 4 && header[0] == 0x25 && header[1] == 0x50 && header[2] == 0x44 && header[3] == 0x46) return FileType.pdf;
+      if (header.length >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return FileType.image;
+      if (header.length >= 4 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return FileType.image;
+    } catch (_) {}
+    return FileType.unknown;
+  }
 
   bool get _isPdf => _resolveFileType() == FileType.pdf;
   bool get _hasTextControls {
@@ -108,135 +112,117 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
   }
 
   void _showBookmarkSheet() {
-    // FIX: Guard — only try to read PdfViewerBloc if this is a PDF file.
-    // For non-PDF files, there is no BlocProvider<PdfViewerBloc> in the tree,
-    // so calling context.read<PdfViewerBloc>() would throw ProviderNotFoundException
-    // and freeze the screen. This was the main cause of the blank screen bug.
     if (!_isPdf) return;
     final state = context.read<PdfViewerBloc>().state;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20.r))),
       builder: (_) => BlocProvider.value(
         value: context.read<PdfViewerBloc>(),
         child: BookmarkSheet(
           bookmarkedPages: state.bookmarkedPages,
-          onJump: (page) {
-            _pdfController.jumpToPage(page + 1);
-            Navigator.pop(context);
-          },
+          onJump: (page) { _pdfController.jumpToPage(page + 1); Navigator.pop(context); },
         ),
       ),
     );
   }
 
   String _subtitle() => switch (_resolveFileType()) {
-        FileType.txt   => 'Text file',
-        FileType.csv   => 'CSV file',
-        FileType.xlsx  => 'Spreadsheet',
-        FileType.docx  => 'Word document',
-        FileType.pptx  => 'Presentation',
-        FileType.image => 'Image',
-        FileType.pdf   => '',
-        _              => widget.file.extension.toUpperCase(),
-      };
+    FileType.txt   => 'Plain Text',
+    FileType.csv   => 'Spreadsheet CSV',
+    FileType.xlsx  => 'Excel Spreadsheet',
+    FileType.docx  => 'Word Document',
+    FileType.pptx  => 'PowerPoint Presentation',
+    FileType.image => 'Image',
+    FileType.pdf   => 'PDF Document',
+    _              => widget.file.extension.toUpperCase(),
+  };
+
+  Color _typeColor() => switch (_resolveFileType()) {
+    FileType.pdf   => const Color(0xFFE53935),
+    FileType.docx  => const Color(0xFF1565C0),
+    FileType.xlsx  => const Color(0xFF2E7D32),
+    FileType.csv   => const Color(0xFF00897B),
+    FileType.pptx  => const Color(0xFFE65100),
+    FileType.txt   => const Color(0xFF546E7A),
+    FileType.image => const Color(0xFF6A1B9A),
+    _              => const Color(0xFF455A64),
+  };
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final typeColor = _typeColor();
 
     return Scaffold(
-      backgroundColor: Colors.black, // same for every format
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: cs.surface,
-        surfaceTintColor: cs.surfaceTint,
-        elevation: 3,
-        shadowColor: cs.shadow.withOpacity(0.12),
+        backgroundColor: isDark ? const Color(0xFF111418) : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: typeColor.withOpacity(0.25)),
+        ),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18.sp),
+          color: cs.onSurface,
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         titleSpacing: 0,
         title: _isPdf
             ? BlocSelector<PdfViewerBloc, PdfViewerState, (int, int)>(
                 selector: (s) => (s.currentPage, s.totalPages),
                 builder: (_, pages) => _AppBarTitle(
                   name: widget.file.name,
-                  subtitle: pages.$2 > 0
-                      ? 'Page ${pages.$1 + 1} of ${pages.$2}'
-                      : '',
-                  theme: theme,
+                  subtitle: pages.$2 > 0 ? 'Page ${pages.$1 + 1} of ${pages.$2}' : _subtitle(),
+                  typeColor: typeColor, theme: theme,
                 ),
               )
-            : _AppBarTitle(
-                name: widget.file.name,
-                subtitle: _subtitle(),
-                theme: theme,
-              ),
+            : _AppBarTitle(name: widget.file.name, subtitle: _subtitle(), typeColor: typeColor, theme: theme),
         actions: [
           if (_isPdf) ...[
             BlocSelector<PdfViewerBloc, PdfViewerState, (bool, int)>(
               selector: (s) => (s.isCurrentPageBookmarked, s.currentPage),
-              builder: (ctx, data) => IconButton(
-                icon: Icon(
-                  data.$1
-                      ? Icons.bookmark_rounded
-                      : Icons.bookmark_outline_rounded,
-                  color: data.$1 ? cs.primary : null,
-                ),
+              builder: (ctx, data) => _AppBarAction(
+                icon: data.$1 ? Icons.bookmark_rounded : Icons.bookmark_outline_rounded,
+                color: data.$1 ? typeColor : null,
                 tooltip: data.$1 ? 'Remove bookmark' : 'Bookmark page',
-                onPressed: () => ctx
-                    .read<PdfViewerBloc>()
-                    .add(PdfViewerToggleBookmarkEvent(data.$2)),
+                onPressed: () => ctx.read<PdfViewerBloc>().add(PdfViewerToggleBookmarkEvent(data.$2)),
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.list_rounded),
-              tooltip: 'Bookmarks',
-              onPressed: _showBookmarkSheet,
-            ),
+            _AppBarAction(icon: Icons.list_rounded, tooltip: 'Bookmarks', onPressed: _showBookmarkSheet),
             BlocSelector<PdfViewerBloc, PdfViewerState, bool>(
               selector: (s) => s.isNightMode,
-              builder: (ctx, isNight) => IconButton(
-                icon: Icon(isNight
-                    ? Icons.wb_sunny_rounded
-                    : Icons.nights_stay_rounded),
+              builder: (ctx, isNight) => _AppBarAction(
+                icon: isNight ? Icons.wb_sunny_rounded : Icons.nights_stay_rounded,
                 tooltip: isNight ? 'Day mode' : 'Night mode',
-                onPressed: () => ctx
-                    .read<PdfViewerBloc>()
-                    .add(const PdfViewerToggleNightModeEvent()),
+                onPressed: () => ctx.read<PdfViewerBloc>().add(const PdfViewerToggleNightModeEvent()),
               ),
             ),
           ],
           if (_hasTextControls) ...[
-            IconButton(
-              icon: const Icon(Icons.text_decrease_rounded),
-              tooltip: 'Smaller text',
+            _AppBarAction(
+              icon: Icons.text_decrease_rounded, tooltip: 'Smaller text',
               onPressed: _fontSize > _minFont
-                  ? () => setState(() =>
-                      _fontSize = (_fontSize - 2).clamp(_minFont, _maxFont))
+                  ? () => setState(() => _fontSize = (_fontSize - 2).clamp(_minFont, _maxFont))
                   : null,
             ),
-            IconButton(
-              icon: const Icon(Icons.text_increase_rounded),
-              tooltip: 'Larger text',
+            _AppBarAction(
+              icon: Icons.text_increase_rounded, tooltip: 'Larger text',
               onPressed: _fontSize < _maxFont
-                  ? () => setState(() =>
-                      _fontSize = (_fontSize + 2).clamp(_minFont, _maxFont))
+                  ? () => setState(() => _fontSize = (_fontSize + 2).clamp(_minFont, _maxFont))
                   : null,
             ),
           ],
-          IconButton(
-            icon: const Icon(Icons.share_rounded),
-            tooltip: 'Share',
+          _AppBarAction(
+            icon: Icons.share_rounded, tooltip: 'Share',
             onPressed: _isPdf
-                ? () => context
-                    .read<PdfViewerBloc>()
-                    .add(const PdfViewerShareEvent())
-                : () => Share.shareXFiles(
-                      [XFile(widget.file.path)],
-                      subject: widget.file.name,
-                    ),
+                ? () => context.read<PdfViewerBloc>().add(const PdfViewerShareEvent())
+                : () => Share.shareXFiles([XFile(widget.file.path)], subject: widget.file.name),
           ),
           SizedBox(width: 4.w),
         ],
@@ -245,59 +231,11 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
     );
   }
 
-  /// Resolves the effective FileType — falls back to content sniffing
-  /// for files with no/wrong extension (e.g. WhatsApp: DOC-20260426-WA0002.docx
-  /// that arrives in cache with a truncated or missing extension).
-  FileType _resolveFileType() {
-    final declared = widget.file.fileType;
-    if (declared != FileType.unknown) return declared;
-    // Content sniffing: read first 8 bytes to detect magic
-    try {
-      final f = widget.file.file;
-      if (!f.existsSync()) return FileType.unknown;
-      final header = f.readAsBytesSync().sublist(0, 8.clamp(0, f.lengthSync()));
-      // ZIP magic (PK) — could be DOCX, XLSX, PPTX
-      if (header.length >= 4 &&
-          header[0] == 0x50 && header[1] == 0x4B &&
-          header[2] == 0x03 && header[3] == 0x04) {
-        // Peek inside ZIP to identify Office format
-        try {
-          final archive = ZipDecoder().decodeBytes(f.readAsBytesSync());
-          final names = archive.files.map((e) => e.name).toList();
-          if (names.any((n) => n.startsWith('word/'))) return FileType.docx;
-          if (names.any((n) => n.startsWith('xl/'))) return FileType.xlsx;
-          if (names.any((n) => n.startsWith('ppt/'))) return FileType.pptx;
-        } catch (_) {}
-        return FileType.unknown;
-      }
-      // PDF magic (%PDF)
-      if (header.length >= 4 &&
-          header[0] == 0x25 && header[1] == 0x50 &&
-          header[2] == 0x44 && header[3] == 0x46) {
-        return FileType.pdf;
-      }
-      // JPEG magic (FF D8 FF)
-      if (header.length >= 3 &&
-          header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) {
-        return FileType.image;
-      }
-      // PNG magic (89 50 4E 47)
-      if (header.length >= 4 &&
-          header[0] == 0x89 && header[1] == 0x50 &&
-          header[2] == 0x4E && header[3] == 0x47) {
-        return FileType.image;
-      }
-    } catch (_) {}
-    return FileType.unknown;
-  }
-
   Widget _buildBody() {
     final fileType = _resolveFileType();
     return switch (fileType) {
-      FileType.pdf =>
-        _PdfBody(file: widget.file, controller: _pdfController),
-      FileType.txt || FileType.csv =>
-        _PlainTextBody(file: widget.file, fontSize: _fontSize),
+      FileType.pdf   => _PdfBody(file: widget.file, controller: _pdfController),
+      FileType.txt || FileType.csv => _PlainTextBody(file: widget.file, fontSize: _fontSize),
       FileType.xlsx  => _ExcelBody(file: widget.file),
       FileType.docx  => _DocxBody(file: widget.file, fontSize: _fontSize),
       FileType.pptx  => _PptxBody(file: widget.file),
@@ -308,289 +246,254 @@ class _UnifiedScaffoldState extends State<_UnifiedScaffold> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// AppBar title (shared)
+// AppBar helpers
 // ══════════════════════════════════════════════════════════════════════════════
 class _AppBarTitle extends StatelessWidget {
-  const _AppBarTitle({
-    required this.name,
-    required this.subtitle,
-    required this.theme,
-  });
+  const _AppBarTitle({required this.name, required this.subtitle, required this.typeColor, required this.theme});
   final String name, subtitle;
+  final Color typeColor;
   final ThemeData theme;
-
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            name,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (subtitle.isNotEmpty)
-            Text(
-              subtitle,
-              style: theme.textTheme.labelSmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              maxLines: 1,
-            ),
-        ],
-      );
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      Text(name, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+      if (subtitle.isNotEmpty)
+        Text(subtitle, style: theme.textTheme.labelSmall?.copyWith(color: typeColor, fontWeight: FontWeight.w500), maxLines: 1),
+    ],
+  );
+}
+
+class _AppBarAction extends StatelessWidget {
+  const _AppBarAction({required this.icon, required this.tooltip, this.onPressed, this.color});
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final Color? color;
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return IconButton(
+      icon: Icon(icon, size: 20.sp, color: color ?? cs.onSurface),
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// _PageCard  — white rectangle with shadow, mimics a PDF page.
-//              Used by every non-PDF body widget.
+// Shared page chrome
 // ══════════════════════════════════════════════════════════════════════════════
 class _PageCard extends StatelessWidget {
-  const _PageCard({
-    required this.child,
-    this.horizontalPadding = 20.0,
-    this.verticalPadding = 24.0,
-  });
+  const _PageCard({required this.child, this.horizontalPadding = 22.0, this.verticalPadding = 28.0});
   final Widget child;
-  final double horizontalPadding;
-  final double verticalPadding;
-
+  final double horizontalPadding, verticalPadding;
   @override
   Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.all(Radius.circular(4)),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x55000000),
-              blurRadius: 12,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: horizontalPadding,
-          vertical: verticalPadding,
-        ),
-        child: child,
-      );
+    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+    width: double.infinity,
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: const BorderRadius.all(Radius.circular(6)),
+      boxShadow: [
+        BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 6)),
+        BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 6, offset: const Offset(0, 2)),
+      ],
+    ),
+    padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
+    child: child,
+  );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// _PageScrollView — Scrollbar > bounce-scroll > _PageCard.
-//                   THE unified body structure for TXT, CSV, DOCX, XLSX, PPTX.
-// ══════════════════════════════════════════════════════════════════════════════
 class _PageScrollView extends StatelessWidget {
-  const _PageScrollView({
-    required this.child,
-    this.horizontalPadding = 20.0,
-    this.verticalPadding = 24.0,
-  });
+  const _PageScrollView({required this.child, this.horizontalPadding = 22.0, this.verticalPadding = 28.0, this.controller});
   final Widget child;
-  final double horizontalPadding;
-  final double verticalPadding;
-
+  final double horizontalPadding, verticalPadding;
+  final ScrollController? controller;
   @override
   Widget build(BuildContext context) => Scrollbar(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: _PageCard(
-            horizontalPadding: horizontalPadding,
-            verticalPadding: verticalPadding,
-            child: child,
-          ),
-        ),
-      );
+    controller: controller,
+    child: SingleChildScrollView(
+      controller: controller,
+      physics: const BouncingScrollPhysics(),
+      child: _PageCard(horizontalPadding: horizontalPadding, verticalPadding: verticalPadding, child: child),
+    ),
+  );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Shared helpers — loader and error also use the page-card look
-// ══════════════════════════════════════════════════════════════════════════════
 class _PageLoader extends StatelessWidget {
   const _PageLoader();
-
   @override
   Widget build(BuildContext context) => Center(
-        child: _PageCard(
-          child: const SizedBox(
-            height: 100,
-            child: Center(
-              child: CircularProgressIndicator(color: Color(0xFF1A73E8)),
-            ),
-          ),
-        ),
-      );
+    child: _PageCard(child: const SizedBox(height: 120, child: Center(child: CircularProgressIndicator(color: Color(0xFF1A73E8), strokeWidth: 2.5)))),
+  );
 }
 
 class _PageError extends StatelessWidget {
   const _PageError(this.message);
   final String message;
-
   @override
   Widget build(BuildContext context) => Center(
-        child: _PageCard(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline_rounded,
-                  size: 40, color: Color(0xFFD32F2F)),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                style: const TextStyle(
-                    color: Color(0xFFD32F2F), fontSize: 13, height: 1.5),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
+    child: _PageCard(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.error_outline_rounded, size: 44, color: Color(0xFFD32F2F)),
+      const SizedBox(height: 14),
+      Text(message, style: const TextStyle(color: Color(0xFFD32F2F), fontSize: 13, height: 1.6), textAlign: TextAlign.center),
+    ])),
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PDF BODY  (unchanged — uses SfPdfViewer which already renders PDF pages)
+// PDF BODY
 // ══════════════════════════════════════════════════════════════════════════════
 class _PdfBody extends StatefulWidget {
   const _PdfBody({required this.file, required this.controller});
   final PdfFileModel file;
   final PdfViewerController controller;
-
   @override
   State<_PdfBody> createState() => _PdfBodyState();
 }
 
 class _PdfBodyState extends State<_PdfBody> {
   bool _isNightMode = false;
-
   @override
   Widget build(BuildContext context) => BlocListener<PdfViewerBloc, PdfViewerState>(
-        listenWhen: (p, c) => p.isNightMode != c.isNightMode,
-        listener: (_, s) => setState(() => _isNightMode = s.isNightMode),
-        child: Stack(
-          children: [
-            RepaintBoundary(
-              child: _nightWrap(
-                RepaintBoundary(
-                  child: SfPdfViewer.file(
-                    widget.file.file,
-                    controller: widget.controller,
-                    onPageChanged: (d) => context
-                        .read<PdfViewerBloc>()
-                        .add(PdfViewerPageChangedEvent(d.newPageNumber - 1)),
-                    onDocumentLoaded: (d) => context
-                        .read<PdfViewerBloc>()
-                        .add(PdfViewerDocumentLoadedEvent(
-                            d.document.pages.count)),
-                    initialPageNumber: widget.file.lastOpenedPage + 1,
-                    pageSpacing: 4,
-                    canShowScrollHead: true,
-                    canShowScrollStatus: false,
-                    enableDoubleTapZooming: true,
-                    interactionMode: PdfInteractionMode.pan,
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 24.h,
-              child: BlocSelector<PdfViewerBloc, PdfViewerState, (int, int)>(
-                selector: (s) => (s.currentPage, s.totalPages),
-                builder: (_, pages) => ViewerControls(
-                  controller: widget.controller,
-                  currentPage: pages.$1,
-                  totalPages: pages.$2,
-                ),
-              ),
-            ),
-          ],
+    listenWhen: (p, c) => p.isNightMode != c.isNightMode,
+    listener: (_, s) => setState(() => _isNightMode = s.isNightMode),
+    child: Stack(children: [
+      RepaintBoundary(child: _nightWrap(RepaintBoundary(child: SfPdfViewer.file(
+        widget.file.file, controller: widget.controller,
+        onPageChanged: (d) => context.read<PdfViewerBloc>().add(PdfViewerPageChangedEvent(d.newPageNumber - 1)),
+        onDocumentLoaded: (d) => context.read<PdfViewerBloc>().add(PdfViewerDocumentLoadedEvent(d.document.pages.count)),
+        initialPageNumber: widget.file.lastOpenedPage + 1,
+        pageSpacing: 4, canShowScrollHead: true, canShowScrollStatus: false,
+        enableDoubleTapZooming: true, interactionMode: PdfInteractionMode.pan,
+      )))),
+      Positioned(left: 0, right: 0, bottom: 24.h,
+        child: BlocSelector<PdfViewerBloc, PdfViewerState, (int, int)>(
+          selector: (s) => (s.currentPage, s.totalPages),
+          builder: (_, pages) => ViewerControls(controller: widget.controller, currentPage: pages.$1, totalPages: pages.$2),
         ),
-      );
-
+      ),
+    ]),
+  );
   Widget _nightWrap(Widget child) => _isNightMode
-      ? ColorFiltered(
-          colorFilter: const ColorFilter.matrix([
-            -1, 0, 0, 0, 255,
-            0, -1, 0, 0, 255,
-            0, 0, -1, 0, 255,
-            0, 0, 0, 1, 0,
-          ]),
-          child: child,
-        )
+      ? ColorFiltered(colorFilter: const ColorFilter.matrix([-1,0,0,0,255,0,-1,0,0,255,0,0,-1,0,255,0,0,0,1,0]), child: child)
       : child;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TXT / CSV  →  _PageScrollView > SelectableText
+// TXT / CSV
 // ══════════════════════════════════════════════════════════════════════════════
 class _PlainTextBody extends StatefulWidget {
   const _PlainTextBody({required this.file, required this.fontSize});
   final PdfFileModel file;
   final double fontSize;
-
   @override
   State<_PlainTextBody> createState() => _PlainTextBodyState();
 }
 
 class _PlainTextBodyState extends State<_PlainTextBody> {
-  // FIX: readAsString() throws a FormatException on non-UTF-8 encoded files
-  // (common for files created on Windows with Latin-1/CP1252 encoding, or
-  // CSV files exported from Excel with local encodings).
-  // Solution: read as bytes first, then try UTF-8, fall back to Latin-1.
   late final Future<String> _future = _readText();
 
   Future<String> _readText() async {
     final bytes = await File(widget.file.path).readAsBytes();
     if (bytes.isEmpty) return '(empty file)';
-    // Try UTF-8 first (strict)
-    try {
-      return utf8.decode(bytes);
-    } catch (_) {}
-    // Fall back to Latin-1 — never throws, covers all single-byte encodings
-    try {
-      return latin1.decode(bytes);
-    } catch (_) {}
-    // Last resort: allow malformed UTF-8 (replaces bad bytes with replacement char)
+    try { return utf8.decode(bytes); } catch (_) {}
+    try { return latin1.decode(bytes); } catch (_) {}
     return utf8.decode(bytes, allowMalformed: true);
   }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<String>(
-        future: _future,
-        builder: (_, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const _PageLoader();
-          }
-          if (snap.hasError) return _PageError('Cannot read file: ${snap.error}');
-          return _PageScrollView(
-            child: SelectableText(
-              snap.data ?? '',
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: widget.fontSize,
-                height: 1.65,
-                color: Colors.black87,
-              ),
-            ),
-          );
-        },
-      );
+    future: _future,
+    builder: (_, snap) {
+      if (snap.connectionState != ConnectionState.done) return const _PageLoader();
+      if (snap.hasError) return _PageError('Cannot read file: ${snap.error}');
+      final text = snap.data ?? '';
+      final isCsv = widget.file.extension.toUpperCase() == 'CSV';
+      if (isCsv) return _CsvTable(text: text);
+      return _PageScrollView(child: SelectableText(text,
+        style: TextStyle(fontFamily: 'monospace', fontSize: widget.fontSize, height: 1.7, color: Colors.black87, letterSpacing: 0.2)));
+    },
+  );
+}
+
+// ── CSV rendered as a proper scrollable table ─────────────────────────────────
+class _CsvTable extends StatefulWidget {
+  const _CsvTable({required this.text});
+  final String text;
+  @override
+  State<_CsvTable> createState() => _CsvTableState();
+}
+
+class _CsvTableState extends State<_CsvTable> {
+  late final List<List<String>> _rows;
+  final _hScroll = ScrollController();
+  final _vScroll = ScrollController();
+
+  @override
+  void initState() { super.initState(); _rows = _parseCsv(widget.text); }
+  @override
+  void dispose() { _hScroll.dispose(); _vScroll.dispose(); super.dispose(); }
+
+  List<List<String>> _parseCsv(String content) {
+    final rows = <List<String>>[];
+    for (final rawLine in content.split('\n')) {
+      final line = rawLine.trimRight();
+      if (line.isEmpty) continue;
+      final fields = <String>[]; final cur = StringBuffer(); bool inQ = false;
+      for (int i = 0; i < line.length; i++) {
+        final ch = line[i];
+        if (ch == '"') {
+          if (inQ && i + 1 < line.length && line[i + 1] == '"') { cur.write('"'); i++; }
+          else { inQ = !inQ; }
+        } else if (ch == ',' && !inQ) { fields.add(cur.toString()); cur.clear(); }
+        else { cur.write(ch); }
+      }
+      fields.add(cur.toString()); rows.add(fields);
+    }
+    return rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_rows.isEmpty) return const _PageError('No data found in CSV file');
+    final headers = _rows.first;
+    final dataRows = _rows.skip(1).toList();
+    return Scrollbar(controller: _vScroll, child: SingleChildScrollView(
+      controller: _vScroll, physics: const BouncingScrollPhysics(),
+      child: _PageCard(horizontalPadding: 0, verticalPadding: 0, child: Scrollbar(
+        controller: _hScroll, scrollbarOrientation: ScrollbarOrientation.bottom,
+        child: SingleChildScrollView(controller: _hScroll, scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
+          child: DataTable(
+            headingRowHeight: 44, dataRowMinHeight: 38, dataRowMaxHeight: 52,
+            columnSpacing: 20, horizontalMargin: 16,
+            border: TableBorder(horizontalInside: BorderSide(color: Colors.grey.shade200)),
+            headingRowColor: WidgetStateProperty.all(const Color(0xFFF8F9FA)),
+            columns: headers.map((h) => DataColumn(label: Text(h.trim(),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF1A3A5C))))).toList(),
+            rows: dataRows.asMap().entries.map((e) => DataRow(
+              color: WidgetStateProperty.resolveWith((s) => e.key.isEven ? Colors.white : const Color(0xFFFAFBFC)),
+              cells: e.value.map((cell) => DataCell(Text(cell.trim(),
+                style: const TextStyle(fontSize: 12, color: Colors.black87)))).toList(),
+            )).toList(),
+          ),
+        ),
+      )),
+    ));
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// DOCX  →  _PageScrollView > Column of paragraphs
+// DOCX
 // ══════════════════════════════════════════════════════════════════════════════
 class _DocxBody extends StatefulWidget {
   const _DocxBody({required this.file, required this.fontSize});
-  final PdfFileModel file;
-  final double fontSize;
-
-  @override
-  State<_DocxBody> createState() => _DocxBodyState();
+  final PdfFileModel file; final double fontSize;
+  @override State<_DocxBody> createState() => _DocxBodyState();
 }
 
 class _DocxBodyState extends State<_DocxBody> {
@@ -599,130 +502,78 @@ class _DocxBodyState extends State<_DocxBody> {
   Future<List<_Para>> _parse() async {
     final bytes = await File(widget.file.path).readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
-    final docFile = archive.files.firstWhere(
-      (f) => f.name == 'word/document.xml',
-      orElse: () => throw Exception('Not a valid DOCX file'),
-    );
-    // FIX: Safe cast for archive content
+    final docFile = archive.files.firstWhere((f) => f.name == 'word/document.xml',
+      orElse: () => throw Exception('Not a valid DOCX file'));
     final rawContent = docFile.content;
-    final contentBytes = rawContent is List<int>
-        ? rawContent
-        : List<int>.from(rawContent as List);
+    final contentBytes = rawContent is List<int> ? rawContent : List<int>.from(rawContent as List);
     final xml = utf8.decode(contentBytes, allowMalformed: true);
     final paras = <_Para>[];
-
-    for (final m
-        in RegExp(r'<w:p[ >].*?</w:p>', dotAll: true).allMatches(xml)) {
+    for (final m in RegExp(r'<w:p[ >].*?</w:p>', dotAll: true).allMatches(xml)) {
       final px = m.group(0)!;
-      final styleVal =
-          RegExp(r'<w:pStyle[^>]+w:val="([^"]+)"')
-                  .firstMatch(px)
-                  ?.group(1)
-                  ?.toLowerCase() ??
-              '';
-      final runs = RegExp(r'<w:r[ >].*?</w:r>', dotAll: true)
-          .allMatches(px)
-          .map((r) => r.group(0)!)
-          .toList();
-      final isBold = runs.isNotEmpty &&
-          runs.every((r) => r.contains('<w:b/>') || r.contains('<w:b '));
-      // FIX: Use dotAll-safe extraction and unescape XML entities
-      final rawText = RegExp(r'<w:t[^>]*>(.*?)</w:t>', dotAll: true)
-          .allMatches(px)
-          .map((t) => t.group(1) ?? '')
-          .join('');
-      final text = rawText
-          .replaceAll('&amp;', '&')
-          .replaceAll('&lt;', '<')
-          .replaceAll('&gt;', '>')
-          .replaceAll('&quot;', '"')
-          .replaceAll('&apos;', "'");
+      final styleVal = RegExp(r'<w:pStyle[^>]+w:val="([^"]+)"').firstMatch(px)?.group(1)?.toLowerCase() ?? '';
+      final runs = RegExp(r'<w:r[ >].*?</w:r>', dotAll: true).allMatches(px).map((r) => r.group(0)!).toList();
+      final isBold = runs.isNotEmpty && runs.every((r) => r.contains('<w:b/>') || r.contains('<w:b '));
+      final rawText = RegExp(r'<w:t[^>]*>(.*?)</w:t>', dotAll: true).allMatches(px).map((t) => t.group(1) ?? '').join('');
+      final text = rawText.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'");
       if (text.trim().isEmpty) continue;
-
       _ParaStyle style = _ParaStyle.body;
-      // FIX: Also match 'heading 1' (with space) — Word exports both styles
-      if (styleVal.contains('heading1') || styleVal.contains('heading 1') || styleVal == 'title') {
-        style = _ParaStyle.h1;
-      } else if (styleVal.contains('heading2') || styleVal.contains('heading 2') || styleVal == 'subtitle') {
-        style = _ParaStyle.h2;
-      } else if (styleVal.contains('heading3') || styleVal.contains('heading 3')) {
-        style = _ParaStyle.h3;
-      } else if (isBold && text.trim().length <= 80) {
-        style = _ParaStyle.h2;
-      }
+      if (styleVal.contains('heading1') || styleVal.contains('heading 1') || styleVal == 'title') { style = _ParaStyle.h1; }
+      else if (styleVal.contains('heading2') || styleVal.contains('heading 2') || styleVal == 'subtitle') { style = _ParaStyle.h2; }
+      else if (styleVal.contains('heading3') || styleVal.contains('heading 3')) { style = _ParaStyle.h3; }
+      else if (isBold && text.trim().length <= 80) { style = _ParaStyle.h2; }
       paras.add(_Para(text: text, style: style));
     }
-
     if (paras.isEmpty) throw Exception('No readable text found in this DOCX file');
     return paras;
   }
 
   @override
   Widget build(BuildContext context) => FutureBuilder<List<_Para>>(
-        future: _future,
-        builder: (_, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const _PageLoader();
-          }
-          if (snap.hasError) return _PageError('${snap.error}');
-
-          final base = widget.fontSize;
-          return _PageScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: snap.data!.map((p) {
-                final style = switch (p.style) {
-                  _ParaStyle.h1 => TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: base * 1.55,
-                      color: Colors.black87,
-                      height: 1.4),
-                  _ParaStyle.h2 => TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: base * 1.25,
-                      color: Colors.black87,
-                      height: 1.4),
-                  _ParaStyle.h3 => TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: base * 1.1,
-                      color: Colors.black87,
-                      height: 1.4),
-                  _ParaStyle.body => TextStyle(
-                      fontSize: base, color: Colors.black87, height: 1.65),
-                };
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SelectableText(p.text, style: style),
-                );
-              }).toList(),
-            ),
-          );
-        },
-      );
+    future: _future,
+    builder: (_, snap) {
+      if (snap.connectionState != ConnectionState.done) return const _PageLoader();
+      if (snap.hasError) return _PageError('${snap.error}');
+      final base = widget.fontSize;
+      return _PageScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: snap.data!.map((p) {
+        switch (p.style) {
+          case _ParaStyle.h1:
+            return Padding(padding: const EdgeInsets.only(top: 20, bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SelectableText(p.text, style: TextStyle(fontWeight: FontWeight.w800, fontSize: base * 1.6, color: const Color(0xFF1A3A5C), height: 1.3)),
+              const SizedBox(height: 6),
+              Container(height: 3, width: 48, decoration: BoxDecoration(color: const Color(0xFF1A3A5C), borderRadius: BorderRadius.circular(2))),
+            ]));
+          case _ParaStyle.h2:
+            return Padding(padding: const EdgeInsets.only(top: 16, bottom: 6),
+              child: SelectableText(p.text, style: TextStyle(fontWeight: FontWeight.w700, fontSize: base * 1.25, color: const Color(0xFF2E6DA4), height: 1.35)));
+          case _ParaStyle.h3:
+            return Padding(padding: const EdgeInsets.only(top: 12, bottom: 4),
+              child: SelectableText(p.text, style: TextStyle(fontWeight: FontWeight.w600, fontSize: base * 1.1, color: Colors.black87, height: 1.4)));
+          case _ParaStyle.body:
+            return Padding(padding: const EdgeInsets.only(bottom: 10),
+              child: SelectableText(p.text, style: TextStyle(fontSize: base, color: Colors.black87, height: 1.75)));
+        }
+      }).toList()));
+    },
+  );
 }
 
 enum _ParaStyle { h1, h2, h3, body }
-
-class _Para {
-  const _Para({required this.text, required this.style});
-  final String text;
-  final _ParaStyle style;
-}
+class _Para { const _Para({required this.text, required this.style}); final String text; final _ParaStyle style; }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// XLSX  →  _PageScrollView > (tabs) + DataTable  (all inside one page card)
+// XLSX
 // ══════════════════════════════════════════════════════════════════════════════
 class _ExcelBody extends StatefulWidget {
   const _ExcelBody({required this.file});
   final PdfFileModel file;
-
-  @override
-  State<_ExcelBody> createState() => _ExcelBodyState();
+  @override State<_ExcelBody> createState() => _ExcelBodyState();
 }
 
 class _ExcelBodyState extends State<_ExcelBody> {
   late final Future<excel_pkg.Excel> _future = _load();
   int _sheetIndex = 0;
+  final _hScroll = ScrollController();
+  final _vScroll = ScrollController();
 
   Future<excel_pkg.Excel> _load() async {
     final bytes = await File(widget.file.path).readAsBytes();
@@ -730,183 +581,109 @@ class _ExcelBodyState extends State<_ExcelBody> {
   }
 
   @override
+  void dispose() { _hScroll.dispose(); _vScroll.dispose(); super.dispose(); }
+
+  @override
   Widget build(BuildContext context) => FutureBuilder<excel_pkg.Excel>(
-        future: _future,
-        builder: (_, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const _PageLoader();
-          }
-          if (snap.hasError || snap.data == null) {
-            return _PageError('Cannot read spreadsheet: ${snap.error}');
-          }
+    future: _future,
+    builder: (_, snap) {
+      if (snap.connectionState != ConnectionState.done) return const _PageLoader();
+      if (snap.hasError || snap.data == null) return _PageError('Cannot read spreadsheet: ${snap.error}');
+      final xls = snap.data!;
+      final sheets = xls.tables.keys.toList();
+      if (sheets.isEmpty) return const _PageError('No sheets found');
+      if (_sheetIndex >= sheets.length) _sheetIndex = 0;
+      final rows = xls.tables[sheets[_sheetIndex]]!.rows;
 
-          final xls = snap.data!;
-          final sheets = xls.tables.keys.toList();
-          if (sheets.isEmpty) return const _PageError('No sheets found');
-          if (_sheetIndex >= sheets.length) _sheetIndex = 0;
-          final rows = xls.tables[sheets[_sheetIndex]]!.rows;
+      return Column(children: [
+        // Sheet tabs
+        if (sheets.length > 1)
+          Container(color: Colors.black, child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+            child: Row(children: sheets.asMap().entries.map((e) {
+              final sel = e.key == _sheetIndex;
+              return Padding(padding: EdgeInsets.only(right: 8.w), child: GestureDetector(
+                onTap: () { HapticFeedback.selectionClick(); setState(() => _sheetIndex = e.key); },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 7.h),
+                  decoration: BoxDecoration(
+                    color: sel ? const Color(0xFF2E7D32) : Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: sel ? const Color(0xFF2E7D32) : Colors.white.withOpacity(0.2)),
+                  ),
+                  child: Text(e.value, style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w600, color: Colors.white)),
+                ),
+              ));
+            }).toList()),
+          )),
 
-          // Tabs + table live inside ONE _PageScrollView — same as TXT/DOCX
-          return _PageScrollView(
-            horizontalPadding: 0,
-            verticalPadding: 0,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Sheet tabs
-                if (sheets.length > 1)
-                  Padding(
-                    padding:
-                        const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: List.generate(sheets.length, (i) {
-                        final sel = i == _sheetIndex;
-                        return GestureDetector(
-                          onTap: () => setState(() => _sheetIndex = i),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: sel
-                                  ? const Color(0xFF1A73E8)
-                                  : const Color(0xFFE8F0FE),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              sheets[i],
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: sel
-                                    ? Colors.white
-                                    : const Color(0xFF1A73E8),
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
+        // Table
+        Expanded(child: rows.isEmpty
+          ? const _PageError('This sheet is empty')
+          : Scrollbar(controller: _vScroll, child: SingleChildScrollView(
+              controller: _vScroll, physics: const BouncingScrollPhysics(),
+              child: _PageCard(horizontalPadding: 0, verticalPadding: 0, child: Scrollbar(
+                controller: _hScroll, scrollbarOrientation: ScrollbarOrientation.bottom,
+                child: SingleChildScrollView(controller: _hScroll, scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
+                  child: DataTable(
+                    headingRowHeight: 46, dataRowMinHeight: 40, dataRowMaxHeight: 54,
+                    columnSpacing: 24, horizontalMargin: 16,
+                    border: TableBorder(horizontalInside: BorderSide(color: Colors.grey.shade200), verticalInside: BorderSide(color: Colors.grey.shade100)),
+                    headingRowColor: WidgetStateProperty.all(const Color(0xFFE8F5E9)),
+                    columns: rows.first.map((c) => DataColumn(label: Text(c?.value?.toString() ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF1B5E20))))).toList(),
+                    rows: rows.skip(1).toList().asMap().entries.map((e) => DataRow(
+                      color: WidgetStateProperty.resolveWith((s) => e.key.isEven ? Colors.white : const Color(0xFFF9FBF9)),
+                      cells: e.value.map((c) => DataCell(Text(c?.value?.toString() ?? '',
+                        style: const TextStyle(fontSize: 12, color: Colors.black87)))).toList(),
+                    )).toList(),
                   ),
-                if (sheets.length > 1)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Divider(height: 1, color: Color(0xFFDDDDDD)),
-                  ),
-
-                // Table
-                if (rows.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                      child: Text('Sheet is empty',
-                          style: TextStyle(color: Colors.black54)),
-                    ),
-                  )
-                else
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.all(12),
-                    child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(
-                          const Color(0xFFF1F3F4)),
-                      border: TableBorder.all(
-                          color: const Color(0xFFDDDDDD), width: 0.5),
-                      columns: rows.first
-                          .map((c) => DataColumn(
-                                label: Text(
-                                  c?.value?.toString() ?? '',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ))
-                          .toList(),
-                      rows: rows.skip(1).map((row) {
-                        return DataRow(
-                          cells: row
-                              .map((c) => DataCell(Text(
-                                    c?.value?.toString() ?? '',
-                                    style: const TextStyle(
-                                        fontSize: 12, color: Colors.black87),
-                                  )))
-                              .toList(),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-              ],
-            ),
-          );
-        },
-      );
+                ),
+              )),
+            )),
+        ),
+      ]);
+    },
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PPTX  →  _PageScrollView > slide content
-//           + floating prev/next pill (same style as PDF's ViewerControls)
+// PPTX — swipe navigation with PageView
 // ══════════════════════════════════════════════════════════════════════════════
 class _PptxBody extends StatefulWidget {
   const _PptxBody({required this.file});
   final PdfFileModel file;
-
-  @override
-  State<_PptxBody> createState() => _PptxBodyState();
+  @override State<_PptxBody> createState() => _PptxBodyState();
 }
 
 class _PptxBodyState extends State<_PptxBody> {
   late final Future<List<List<String>>> _future = _parse();
+  late final PageController _pageController = PageController();
   int _slide = 0;
+
+  @override
+  void dispose() { _pageController.dispose(); super.dispose(); }
 
   Future<List<List<String>>> _parse() async {
     final bytes = await File(widget.file.path).readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
     final slideFiles = archive.files
-        .where((f) =>
-            f.name.startsWith('ppt/slides/slide') &&
-            f.name.endsWith('.xml') &&
-            !f.name.contains('_rels'))
+        .where((f) => f.name.startsWith('ppt/slides/slide') && f.name.endsWith('.xml') && !f.name.contains('_rels'))
         .toList()
       ..sort((a, b) {
-        int n(String s) =>
-            int.tryParse(
-                    RegExp(r'slide(\d+)\.xml').firstMatch(s)?.group(1) ??
-                        '0') ??
-            0;
+        int n(String s) => int.tryParse(RegExp(r'slide(\d+)\.xml').firstMatch(s)?.group(1) ?? '0') ?? 0;
         return n(a.name).compareTo(n(b.name));
       });
-
     if (slideFiles.isEmpty) throw Exception('No slides found');
-
     return slideFiles.map((f) {
-      // FIX: Safe cast — archive content can be List<dynamic> on some files
       final rawContent = f.content;
-      final contentBytes = rawContent is List<int>
-          ? rawContent
-          : List<int>.from(rawContent as List);
+      final contentBytes = rawContent is List<int> ? rawContent : List<int>.from(rawContent as List);
       final xml = utf8.decode(contentBytes, allowMalformed: true);
-      final lines = RegExp(r'<a:t[^>]*>(.*?)</a:t>', dotAll: true)
-          .allMatches(xml)
-          .map((m) {
-            final raw = m.group(1) ?? '';
-            // FIX: Unescape XML entities so & < > render correctly
-            return raw
-                .replaceAll('&amp;', '&')
-                .replaceAll('&lt;', '<')
-                .replaceAll('&gt;', '>')
-                .replaceAll('&quot;', '"')
-                .replaceAll('&apos;', "'")
-                .trim();
-          })
-          .where((t) {
-            if (t.isEmpty) return false;
-            // FIX: Filter raw XML attribute fragments that leak through
-            if (RegExp(r'[a-z]:[a-zA-Z]+=').hasMatch(t)) return false;
-            return true;
-          })
+      final lines = RegExp(r'<a:t[^>]*>(.*?)</a:t>', dotAll: true).allMatches(xml)
+          .map((m) { final raw = m.group(1) ?? ''; return raw.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'").trim(); })
+          .where((t) { if (t.isEmpty) return false; if (RegExp(r'[a-z]:[a-zA-Z]+=').hasMatch(t)) return false; return true; })
           .toList();
       return lines.isEmpty ? <String>['(empty slide)'] : lines;
     }).toList();
@@ -914,182 +691,183 @@ class _PptxBodyState extends State<_PptxBody> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<List<List<String>>>(
-        future: _future,
-        builder: (_, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const _PageLoader();
-          }
-          if (snap.hasError) return _PageError('${snap.error}');
+    future: _future,
+    builder: (_, snap) {
+      if (snap.connectionState != ConnectionState.done) return const _PageLoader();
+      if (snap.hasError) return _PageError('${snap.error}');
+      final slides = snap.data!;
+      final total = slides.length;
+      return Stack(children: [
+        PageView.builder(
+          controller: _pageController,
+          itemCount: total,
+          onPageChanged: (i) { HapticFeedback.selectionClick(); setState(() => _slide = i); },
+          itemBuilder: (_, i) => _SlideCard(texts: slides[i], slideNumber: i + 1, totalSlides: total),
+        ),
+        Positioned(left: 24, right: 24, bottom: 24, child: _SlideNavPill(
+          current: _slide, total: total,
+          onPrev: _slide > 0 ? () => _pageController.previousPage(duration: const Duration(milliseconds: 280), curve: Curves.easeInOut) : null,
+          onNext: _slide < total - 1 ? () => _pageController.nextPage(duration: const Duration(milliseconds: 280), curve: Curves.easeInOut) : null,
+        )),
+      ]);
+    },
+  );
+}
 
-          final slides = snap.data!;
-          final total = slides.length;
-          final texts = slides[_slide];
+class _SlideCard extends StatelessWidget {
+  const _SlideCard({required this.texts, required this.slideNumber, required this.totalSlides});
+  final List<String> texts; final int slideNumber, totalSlides;
+  @override
+  Widget build(BuildContext context) {
+    final title = texts.isNotEmpty ? texts.first : '';
+    final body = texts.length > 1 ? texts.skip(1).toList() : <String>[];
+    return Padding(padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 80.h),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 6))]),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // Header
+          Container(color: const Color(0xFF1A3A5C), padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 18.h), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 3.h),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
+              child: Text('$slideNumber / $totalSlides', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 10.sp, fontWeight: FontWeight.w600))),
+            SizedBox(height: 10.h),
+            SelectableText(title.isEmpty ? 'Slide $slideNumber' : title,
+              style: TextStyle(color: Colors.white, fontSize: 20.sp, fontWeight: FontWeight.w700, height: 1.3)),
+          ])),
+          // Body
+          Expanded(child: body.isEmpty
+            ? Center(child: Text('(no content)', style: TextStyle(color: Colors.grey.shade400, fontSize: 13.sp)))
+            : Scrollbar(child: SingleChildScrollView(physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 20.h),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: body.map((line) {
+                  final isBullet = line.startsWith('•') || line.startsWith('-') || line.startsWith('*');
+                  return Padding(padding: const EdgeInsets.only(bottom: 10), child: isBullet
+                    ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Container(width: 6, height: 6, margin: const EdgeInsets.only(top: 7, right: 10),
+                          decoration: const BoxDecoration(color: Color(0xFF2E6DA4), shape: BoxShape.circle)),
+                        Expanded(child: SelectableText(line.replaceFirst(RegExp(r'^[•\-\*]\s*'), ''),
+                          style: TextStyle(fontSize: 14.sp, color: Colors.black87, height: 1.6))),
+                      ])
+                    : SelectableText(line, style: TextStyle(fontSize: 14.sp, color: Colors.black87, height: 1.6)));
+                }).toList())))),
+        ]),
+      ));
+  }
+}
 
-          return Stack(
-            children: [
-              // Slide content — same _PageScrollView as TXT / DOCX / XLSX
-              _PageScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Slide badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F0FE),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'Slide ${_slide + 1} of $total',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1A73E8)),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
+class _SlideNavPill extends StatelessWidget {
+  const _SlideNavPill({required this.current, required this.total, required this.onPrev, required this.onNext});
+  final int current, total;
+  final VoidCallback? onPrev, onNext;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(color: Colors.black.withOpacity(0.75), borderRadius: BorderRadius.circular(40),
+      boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 12, offset: Offset(0, 4))]),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      _NavBtn(icon: Icons.arrow_back_ios_new_rounded, onTap: onPrev),
+      if (total <= 7)
+        Row(children: List.generate(total, (i) => AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: i == current ? 20 : 6, height: 6,
+          decoration: BoxDecoration(color: i == current ? Colors.white : Colors.white.withOpacity(0.35), borderRadius: BorderRadius.circular(3)),
+        )))
+      else
+        Text('${current + 1} / $total', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+      _NavBtn(icon: Icons.arrow_forward_ios_rounded, onTap: onNext),
+    ]),
+  );
+}
 
-                    // Title
-                    if (texts.isNotEmpty)
-                      SelectableText(
-                        texts.first,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 22,
-                            color: Colors.black87,
-                            height: 1.35),
-                      ),
-
-                    // Body lines
-                    if (texts.length > 1) ...[
-                      const SizedBox(height: 14),
-                      ...texts.skip(1).map((line) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: SelectableText(
-                              line,
-                              style: const TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black87,
-                                  height: 1.6),
-                            ),
-                          )),
-                    ],
-
-                    // Bottom padding so nav pill doesn't cover content
-                    const SizedBox(height: 80),
-                  ],
-                ),
-              ),
-
-              // Floating nav pill — matches PDF's ViewerControls style
-              Positioned(
-                left: 24,
-                right: 24,
-                bottom: 24,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.72),
-                    borderRadius: BorderRadius.circular(40),
-                    boxShadow: const [
-                      BoxShadow(
-                          color: Color(0x44000000),
-                          blurRadius: 10,
-                          offset: Offset(0, 4)),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                            color: Colors.white, size: 20),
-                        onPressed: _slide > 0
-                            ? () => setState(() => _slide--)
-                            : null,
-                      ),
-                      Text(
-                        '${_slide + 1} / $total',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_forward_ios_rounded,
-                            color: Colors.white, size: 20),
-                        onPressed: _slide < total - 1
-                            ? () => setState(() => _slide++)
-                            : null,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      );
+class _NavBtn extends StatelessWidget {
+  const _NavBtn({required this.icon, this.onTap});
+  final IconData icon; final VoidCallback? onTap;
+  @override
+  Widget build(BuildContext context) => Material(color: Colors.transparent, child: InkWell(
+    onTap: onTap != null ? () { HapticFeedback.selectionClick(); onTap!(); } : null,
+    borderRadius: BorderRadius.circular(24),
+    child: Padding(padding: const EdgeInsets.all(10), child: AnimatedOpacity(
+      opacity: onTap != null ? 1.0 : 0.3, duration: const Duration(milliseconds: 150),
+      child: Icon(icon, color: Colors.white, size: 18),
+    )),
+  ));
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// IMAGE  →  white _PageCard on black background, pinch-zoom inside
+// IMAGE — full-screen pinch-zoom
 // ══════════════════════════════════════════════════════════════════════════════
-class _ImageBody extends StatelessWidget {
+class _ImageBody extends StatefulWidget {
   const _ImageBody({required this.file});
   final PdfFileModel file;
+  @override State<_ImageBody> createState() => _ImageBodyState();
+}
+
+class _ImageBodyState extends State<_ImageBody> {
+  final _transformController = TransformationController();
+  bool _showInfo = true;
 
   @override
-  Widget build(BuildContext context) => _PageScrollView(
-        horizontalPadding: 12,
-        verticalPadding: 16,
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 8.0,
-          child: Image.file(
-            File(file.path),
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) =>
-                const _PageError('Cannot display image'),
-          ),
-        ),
-      );
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(seconds: 2), () { if (mounted) setState(() => _showInfo = false); });
+  }
+
+  @override
+  void dispose() { _transformController.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: () => setState(() => _showInfo = !_showInfo),
+    onDoubleTap: () { HapticFeedback.mediumImpact(); _transformController.value = Matrix4.identity(); },
+    child: Stack(fit: StackFit.expand, children: [
+      InteractiveViewer(
+        transformationController: _transformController,
+        minScale: 0.5, maxScale: 10.0,
+        child: Center(child: Image.file(File(widget.file.path), fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const _PageError('Cannot display image'))),
+      ),
+      AnimatedPositioned(
+        duration: const Duration(milliseconds: 250), curve: Curves.easeInOut,
+        bottom: _showInfo ? 24 : -80, left: 24, right: 24,
+        child: IgnorePointer(child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            const Icon(Icons.zoom_in_rounded, color: Colors.white70, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Pinch to zoom · Double-tap to reset', style: TextStyle(color: Colors.white70, fontSize: 12.sp))),
+          ]),
+        )),
+      ),
+    ]),
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// UNKNOWN  →  centred page card
+// UNKNOWN
 // ══════════════════════════════════════════════════════════════════════════════
 class _UnknownBody extends StatelessWidget {
   const _UnknownBody({required this.file});
   final PdfFileModel file;
-
   @override
-  Widget build(BuildContext context) => Center(
-        child: _PageCard(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.insert_drive_file_rounded,
-                  size: 64, color: Color(0x55000000)),
-              const SizedBox(height: 16),
-              Text(
-                'Cannot preview .${file.extension.toLowerCase()} files',
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'You can share it to open with another app.',
-                style: TextStyle(fontSize: 13, color: Colors.black54),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
+  Widget build(BuildContext context) => Center(child: _PageCard(child: Column(mainAxisSize: MainAxisSize.min, children: [
+    Container(width: 72, height: 72,
+      decoration: BoxDecoration(color: const Color(0xFFF5F5F5), borderRadius: BorderRadius.circular(16)),
+      child: Center(child: Text(file.extension.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF455A64))))),
+    const SizedBox(height: 16),
+    Text('Cannot preview this file', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w700, color: Colors.black87), textAlign: TextAlign.center),
+    const SizedBox(height: 8),
+    Text('.${file.extension.toLowerCase()} files cannot be previewed.\nUse Share to open in another app.',
+      style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.6), textAlign: TextAlign.center),
+    const SizedBox(height: 20),
+    OutlinedButton.icon(
+      onPressed: () => Share.shareXFiles([XFile(file.path)], subject: file.name),
+      icon: const Icon(Icons.share_rounded, size: 16), label: const Text('Share File'),
+      style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFF1A3A5C), side: const BorderSide(color: Color(0xFF1A3A5C)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+    ),
+  ])));
 }
