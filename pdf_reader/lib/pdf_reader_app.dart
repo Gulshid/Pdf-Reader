@@ -29,10 +29,20 @@ class _PdfReaderAppState extends State<PdfReaderApp>
   bool _initialLockShown = false;
   static bool _lockIsShowing = false;
 
-  /// True only after the app has genuinely gone to background (paused)
-  /// AFTER the lock was last dismissed. This prevents the `resumed` event
-  /// that fires after biometric/PIN unlock from immediately re-locking.
-  bool _wentToBackgroundAfterUnlock = false;
+  /// Timestamp when the app went inactive.
+  /// Used to measure how long the app was away before resuming.
+  DateTime? _inactiveAt;
+
+  /// How long the app must be away before locking on resume.
+  ///
+  /// File picker / permission dialogs / share sheets / biometric prompts
+  /// all return in well under 1 second on any device.
+  /// A real backgrounding (home button, app switcher) keeps the app away
+  /// for at least a few seconds minimum.
+  ///
+  /// 2 seconds is a safe threshold: long enough to ignore all system overlays,
+  /// short enough to always lock when the user genuinely leaves the app.
+  static const _lockThreshold = Duration(seconds: 2);
 
   @override
   void initState() {
@@ -54,17 +64,32 @@ class _PdfReaderAppState extends State<PdfReaderApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!_initialLockShown) return;
 
-    if (state == AppLifecycleState.paused && !_lockIsShowing) {
-      // App genuinely went to background while unlocked.
-      // Now we are allowed to lock on next resume.
-      _wentToBackgroundAfterUnlock = true;
+    if (state == AppLifecycleState.inactive && !_lockIsShowing) {
+      // Record the moment we lost focus.
+      // Fires for both real backgrounding AND system overlays (pickers etc.)
+      // We use _inactiveAt = null check so we only record the FIRST inactive
+      // event in a sequence (inactive → paused → hidden all fire in order).
+      _inactiveAt ??= DateTime.now();
     }
 
     if (state == AppLifecycleState.resumed) {
-      if (_lockIsShowing) return; // biometric dialog — ignore
+      if (_lockIsShowing) {
+        // Biometric/PIN prompt was on top — clear the timer and do nothing.
+        _inactiveAt = null;
+        return;
+      }
 
-      if (_wentToBackgroundAfterUnlock) {
-        _wentToBackgroundAfterUnlock = false;
+      final wentInactiveAt = _inactiveAt;
+      _inactiveAt = null;
+
+      if (wentInactiveAt == null) return;
+
+      final awayDuration = DateTime.now().difference(wentInactiveAt);
+
+      // Only lock if the app was away longer than the threshold.
+      // File pickers, permission dialogs, share sheets all return faster
+      // than _lockThreshold so they will never trigger the lock.
+      if (awayDuration >= _lockThreshold) {
         _maybeShowLock();
       }
     }

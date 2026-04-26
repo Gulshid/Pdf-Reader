@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:go_router/go_router.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 
+import '../../../routes/app_router.dart';
 import '../../../shared/models/pdf_file_model.dart';
 import '../../../shared/models/conversion_task_model.dart';
 import '../bloc/converter_bloc.dart';
@@ -250,9 +252,16 @@ class _DoneActionsState extends State<_DoneActions> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Open
+        // Open inside the app — no background event, no lock trigger
         ElevatedButton.icon(
-          onPressed: () => OpenFilex.open(widget.outputPath),
+          onPressed: () {
+            final file = PdfFileModel.fromFile(File(widget.outputPath));
+            if (file.fileType == FileType.pdf) {
+              context.push(AppRouter.pdfViewer, extra: file);
+            } else {
+              context.push(AppRouter.fileViewer, extra: file);
+            }
+          },
           icon: const Icon(Icons.open_in_new_rounded),
           label: const Text('Open File'),
         ),
